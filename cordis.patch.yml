@@ -1,11 +1,18 @@
 # 简报工作台 —— bundle patch（宿主平面）
 #
-# 插两行，都属于本插件：
+# 两行都属于本插件：
 #   · jianbao        —— 工作台宿主半（Remote 服务 + 三只工具 + 提示段 + 标签门控）
 #   · jianbao-preset —— 把「简报模式」注册进 agent-presets 注册表
 #
-# `- insert:` 是新建行，不覆盖任何已存在的行，与官方 bundle 层没有先后依赖。
-# 没有这两行就没有 fiber，`dsh.client` 声明也就永远扫不到 —— 浏览器半（工作台）不会加载。
+# **两行都必须写在 `- insert:` 里面。**
+# bundle patch 由 dsh-app-boot 的 applyEntryPatches 合并（lib/index.js:72-107）：
+#   · 带 insert 的补丁 = 追加新行；
+#   · 不带 insert、只写 `- id: xxx` 的补丁 = **覆盖已存在的同名行**，
+#     目标不存在时只 warn 一句就跳过 —— 我们这两行是新建的，所以会被静默丢弃。
+# 第一版就是把第一行写成了 `- id: jianbao`，结果整份补丁里只有预设那行生效。
+#
+# 不覆盖任何官方行，与官方 bundle 层没有先后依赖。
+# 没有这两行就没有 fiber，`dsh.client` 声明也就永远扫不到 —— 浏览器半不会加载。
 - insert:
     - id: jianbao
       name: '@zws/dsh-jianbao'

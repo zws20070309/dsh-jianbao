@@ -11,7 +11,7 @@
  *
  * @module @zws/dsh-jianbao-preset
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,7 +33,48 @@ export function packagePaths() {
     root,
     presetDir: join(root, 'preset'),
     prompt: join(root, 'preset', 'prompt.md'),
+    skills: join(root, 'preset', 'skills'),
   }
+}
+
+/**
+ * 把随包技能同步到 $DSH_HOME/jianbao/skills。
+ *
+ * 为什么不是直接指向包内目录：预设 YAML 里的 skill 根必须用一个**能求值的表达式**
+ * 给出，而 cordis 的求值器用 new Function 构造，那里没有 import.meta，也拿不到本包路径。
+ * 所以先把文件落到一个固定路径，YAML 用 dshHomePath 指过去
+ * （与逆向预设 dshHomePath('redteam/skills') 同一套做法）。
+ *
+ * 幂等：内容没变就不重写（避免每次启动都碰 mtime 触发技能目录重扫）。
+ *
+ * @returns {{dir:string, copied:number, action:'synced'|'up-to-date'|'missing'}}
+ */
+export function syncBundledSkills() {
+  const source = packagePaths().skills
+  const target = join(dshHome(), 'jianbao', 'skills')
+  if (!existsSync(source)) return { dir: target, copied: 0, action: 'missing' }
+  let names = []
+  try {
+    names = readdirSync(source).filter((n) => n.endsWith('.md'))
+  } catch {
+    return { dir: target, copied: 0, action: 'missing' }
+  }
+  let copied = 0
+  mkdirSync(target, { recursive: true })
+  for (const name of names) {
+    const from = join(source, name)
+    const to = join(target, name)
+    let same = false
+    try {
+      same = readFileSync(from, 'utf8') === readFileSync(to, 'utf8')
+    } catch {
+      same = false
+    }
+    if (same) continue
+    cpSync(from, to)
+    copied += 1
+  }
+  return { dir: target, copied, action: copied === 0 ? 'up-to-date' : 'synced' }
 }
 
 /** $DSH_HOME。 */
@@ -107,6 +148,14 @@ export function buildDefinition() {
 export function apply(ctx) {
   let releaseDeclared
   let closed = false
+
+  // 随包技能启动即同步（写盘失败只记日志，不阻塞预设注册）。
+  try {
+    const synced = syncBundledSkills()
+    ctx.logger?.info?.('jianbao-preset: bundled skills %s (%d changed) at %s', synced.action, synced.copied, synced.dir)
+  } catch (error) {
+    ctx.logger?.warn?.('jianbao-preset: skill sync failed: %s', error?.message || String(error))
+  }
 
   const softRegistry = () => {
     try {

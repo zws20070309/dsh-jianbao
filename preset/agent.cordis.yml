@@ -44,14 +44,22 @@
 - id: tool-executor-ptc
   name: '@deepseek-ai/dsh-tool-executor-ptc'
 
-# ── skills：只扫本包随带的技能目录，不扫 ~/.dsh/skills 与项目级技能 ──
-# 简报预设用不到逆向/论文那套技能；关掉默认根避免把整个技能库吞进上下文。
+# ── skills：只扫本包随带的技能目录 ────────────────────────────────
+#
+# 目录用 JS 表达式 + dshHomePath 给：**不能写 import.meta** —— cordis 求值那个标签时用的是
+#   new Function('ctx', 'expr', 'with (ctx) { return eval(expr) }')
+# 在 new Function 里 import.meta 是**语法错误**（Cannot use 'import.meta' outside a module），
+# 抛出的 SyntaxError 会被 registry.activate 写进 record.broken，预设直接显示「加载失败」。
+# 已踩过：第一版就是这么写的，UI 红标「加载失败」，但单测全绿（单测不跑 cordis 求值）。
+#
+# 随包技能由 preset/index.js 在注册前同步到 $DSH_HOME/jianbao/skills，
+# 所以这里指那个路径 —— 与逆向预设用 dshHomePath('redteam/skills') 是同一套做法。
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:
     includeDefaultRoots: false
     customSkillDirs:
-      - !!js new URL('./skills', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+      - !!js dshHomePath('jianbao/skills')
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
