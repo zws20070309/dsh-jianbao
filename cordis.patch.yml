@@ -177,10 +177,21 @@
             name: '@deepseek-ai/dsh-tool-present'
 
           # ── 简报本体：三只工具 + 工作台门控 ───────────────────────────────
-          # 包名同样由 resolveRowNames() 改写成绝对 file:// URL —— @zws/dsh-jianbao
-          # 只存在于 profile 平面，registry 的 base 解析不到它。
+          #
+          # **isolate: jianbao 不能省。** 这一行的 apply() 里有 ctx.provide('jianbao', service)
+          # 发布 Remote 服务，而 cordis 的 provide 会把服务写进 root 的 isolate 表
+          #   this.ctx.root[symbols.isolate][name] ??= Symbol(name)   （cordis/lib/index.js:805）
+          # 于是 mountPreset 结束时 leakedServices() 会把它判成「发布到根 realm 的服务」：
+          #   if (rootIsolate[impl.name] === key) leaked.push(impl.name)
+          #   if (leaked.length > 0) throw new Error('Preset services require isolate realms: ...')
+          # —— 整份预设挂不上，UI 只显示四个字「加载失败」。
+          #
+          # 加 isolate 之后这一行的服务在自己的 realm 里，不再泄漏到根。
+          # 下面 compaction 组带 isolate 是同一个道理（它 provides compaction 服务）。
           - id: jianbao
             name: '@zws/dsh-jianbao'
+            isolate:
+              jianbao: true
             config:
               presetId: jianbao
 

@@ -68,6 +68,26 @@ test('提示词已内联进 persona.prefix（不留占位符）', () => {
   assert.match(prefix, /简报/u)
 })
 
+test('jianbao 行必须声明 isolate：它 provide 服务，泄漏到根 realm 会让整份预设挂不上', () => {
+  const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
+  const self = preset.config.plugins.find((r) => r.id === 'jianbao')
+  // 这一行 apply() 里有 ctx.provide('jianbao', service)。cordis 的 provide 写的是
+  //   this.ctx.root[symbols.isolate][name] ??= Symbol(name)   (cordis/lib/index.js:805)
+  // 于是 mountPreset 结束时 leakedServices() 命中：
+  //   if (rootIsolate[impl.name] === key) leaked.push(impl.name)
+  //   if (leaked.length > 0) throw new Error('Preset services require isolate realms: ...')
+  // 整份预设 broken，UI 只剩「加载失败」四个字。
+  assert.ok(self.isolate !== undefined, 'jianbao 行必须有 isolate');
+  assert.equal(self.isolate.jianbao, true, 'isolate 里必须标 jianbao');
+});
+
+test('compaction 组也必须 isolate（它 provides compaction 服务，同一个坑）', () => {
+  const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
+  const comp = preset.config.plugins.find((r) => r.id === 'compaction');
+  assert.ok(comp.isolate !== undefined, 'compaction 组必须有 isolate')
+  assert.equal(comp.isolate.compaction, true, 'isolate 里必须标 compaction')
+})
+
 test('本包那一行在 patch 里用包名（声明式路径能解析，不需要 file:// 改写）', () => {
   const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
   const self = preset.config.plugins.find((r) => r.id === 'jianbao')
