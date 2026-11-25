@@ -12,9 +12,10 @@
  * @module @zws/dsh-jianbao-preset
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { readPresetDefinitionFromText } from './preset-composition.js'
 
 /** Cordis 插件名。 */
@@ -128,6 +129,86 @@ function readPresetText() {
   return renderPrompt(text, prompt)
 }
 
+/**
+ * 尽量把一行的 name 改写成绝对 file:// URL；**解析不到就原样交还**。
+ *
+ * 为什么需要这一步：registry 挂载预设时，裸包名由它自己所在 Loader 的 base 解析，
+ * 而不是本包的 base。官方 dsh-web-app 的 presets/*.patch.yml 里那些行用的都是
+ * '@deepseek-ai/dsh-*'，在它的平面里全都存在，所以从来不用处理这件事。
+ * 我们的预设是 JS 注册的，base 与声明平面不一致，于是：
+ *   · '@zws/dsh-jianbao' 只在 profile 平面 —— 运行时 base 解析不到，**必然 broken**；
+ *   · 相对名 './xxx' 相对谁更是说不清。
+ *
+ * 这两类先解析成绝对 URL 就稳了。其余裸包名交给运行时：
+ * 桌面版 DSH 本身是 Electron，它的 base 在 app.asar 内，**asar 里的模块
+ * 用普通 Node 的 createRequire 是解析不到的**（实测），
+ * 所以这里判失败不代表运行时失败 —— 绝不能因为探不到就把行丢掉。
+ *
+ * @param {string} spec 行 name 原值
+ * @param {string} fromDir 解析基准目录（本包根）
+ * @returns {string} file:// URL，或原值
+ */
+function resolveRowName(spec, fromDir) {
+  if (typeof spec !== 'string' || spec.length === 0) return spec
+  // 内建伪插件（cordis:group / cordis:include）不是模块，原样交给 Loader。
+  if (spec.startsWith('cordis:') || spec.startsWith('file://')) return spec
+  // 相对名：按本包根解析（模板里写 ./xxx 就是相对包根）。
+  if (spec.startsWith('./') || spec.startsWith('../')) {
+    const abs = resolve(fromDir, spec)
+    if (existsSync(abs)) return pathToFileURL(abs).href
+    if (existsSync(join(abs, 'package.json'))) return pathToFileURL(abs).href
+    return spec
+  }
+  // 裸包名：能在本平面解析就写死成绝对 URL（绕开运行时的 base 差异）。
+  const anchors = [fromDir, join(fromDir, 'node_modules'), dshHome(), join(dshHome(), 'profiles', 'desktop')]
+  for (const anchor of anchors) {
+    try {
+      const req = createRequire(join(anchor, 'package.json'))
+      return pathToFileURL(req.resolve(spec)).href
+    } catch {
+      /* 换下一个锚点 */
+    }
+  }
+  // 解析不到：交给运行时（asar 平面），不丢行。
+  return spec
+}
+
+/**
+ * 逐行改写 name；递归处理 group 的内层。
+ *
+ * 注意**不丢弃任何行**：早期版本把解析不到的行剔掉，结果 time-context/tool-fs/
+ * tool-pwsh/compaction 这些全被当成"解析失败"删了 —— 预设直接变成空壳。
+ * 解析不到只代表「我这个 Node 进程看不到 asar」，不代表运行时看不到。
+ *
+ * @param {Array<object>} rows 插件行
+ * @param {string} fromDir 解析基准
+ * @param {string[]} rewritten 收集改写成绝对 URL 的行（便于日志）
+ * @returns {Array<object>}
+ */
+function resolveRowNames(rows, fromDir, rewritten) {
+  const out = []
+  for (const row of rows) {
+    if (row === null || typeof row !== 'object') continue
+    const original = row.name
+    const name = resolveRowName(original, fromDir)
+    if (name !== original) rewritten.push(String(row.id ?? '?') + ': ' + String(original) + ' -> file://')
+    const next = { ...row, name }
+    if (row.group === true && Array.isArray(row.config)) {
+      next.config = resolveRowNames(row.config, fromDir, rewritten)
+    }
+    out.push(next)
+  }
+  return out
+}
+
+/** 最近一次 buildDefinition 改写了哪些行（测试与日志用）。 */
+let lastRewritten = []
+
+/** 读回上一次构建被改写成绝对 URL 的行。 */
+export function rewrittenRows() {
+  return [...lastRewritten]
+}
+
 /** 从磁盘模板读 declaration。 */
 export function buildDefinition() {
   const paths = packagePaths()
@@ -138,7 +219,11 @@ export function buildDefinition() {
     meta = ''
   }
   // baseDir 用**包根**：模板里若有 ./ 相对名（如 ./gate.js），那是相对包根。
-  return readPresetDefinitionFromText(PRESET_ID, readPresetText(), paths.root, meta)
+  const def = readPresetDefinitionFromText(PRESET_ID, readPresetText(), paths.root, meta)
+  const rewritten = []
+  const plugins = resolveRowNames(def.plugins, paths.root, rewritten)
+  lastRewritten = rewritten
+  return { ...def, plugins }
 }
 
 /**
@@ -146,8 +231,6 @@ export function buildDefinition() {
  * @param {object} ctx Cordis 插件上下文
  */
 export function apply(ctx) {
-  let releaseDeclared
-  let closed = false
 
   // 随包技能启动即同步（写盘失败只记日志，不阻塞预设注册）。
   try {
@@ -157,96 +240,22 @@ export function apply(ctx) {
     ctx.logger?.warn?.('jianbao-preset: skill sync failed: %s', error?.message || String(error))
   }
 
-  const softRegistry = () => {
-    try {
-      if (ctx.agentPresets && typeof ctx.agentPresets.register === 'function') return ctx.agentPresets
-    } catch {
-      /* 没有 inject 时点属性会抛 */
-    }
-    try {
-      const reg = ctx.get('agentPresets')
-      if (reg && typeof reg.register === 'function') return reg
-    } catch {
-      /* 服务缺席 */
-    }
-    return null
-  }
-
-  const undeclare = async () => {
-    const dispose = releaseDeclared
-    releaseDeclared = undefined
-    if (!dispose) return
-    try {
-      await dispose()
-    } catch {
-      /* 卸载期报错只记日志 */
-    }
-  }
-
-  const registerOnce = (registry) => {
-    let definition
-    try {
-      definition = buildDefinition()
-    } catch (error) {
-      ctx.logger?.warn?.('jianbao-preset: read preset failed: %s', error?.message || String(error))
-      return
-    }
-    Promise.resolve()
-      .then(async () => {
-        await undeclare()
-        releaseDeclared = await registry.register(definition)
-        // 不能调 registry.list()：它内部会 await owner.loader.await()，
-        // 而本插件正在该 Loader 的激活过程中 —— 会自锁。
-        ctx.logger?.info?.('jianbao-preset: declared for mode dropdown: %s', definition.name || PRESET_ID)
-      })
-      .catch((error) => {
-        ctx.logger?.warn?.('jianbao-preset: register failed: %s', error?.message || String(error))
-      })
-  }
-
-  ctx.effect(() => {
-    let tries = 0
-    const tick = () => {
-      if (closed) return true
-      tries += 1
-      const registry = softRegistry()
-      if (!registry) return false
-      registerOnce(registry)
-      return true
-    }
-    let timer
-    let stop
-    if (!tick()) {
-      timer = setInterval(() => {
-        if (tick()) {
-          clearInterval(timer)
-          timer = undefined
-          if (stop) clearTimeout(stop)
-        }
-      }, 400)
-      if (typeof timer.unref === 'function') timer.unref()
-      stop = setTimeout(() => {
-        if (timer) {
-          clearInterval(timer)
-          timer = undefined
-          ctx.logger?.warn?.('jianbao-preset: agentPresets never appeared (%d tries)', tries)
-        }
-      }, 45000)
-      try {
-        stop.unref?.()
-      } catch {
-        /* ignore */
-      }
-    }
-    return () => {
-      closed = true
-      if (timer) clearInterval(timer)
-      if (stop) clearTimeout(stop)
-      void undeclare()
-    }
-  }, 'dsh-jianbao-preset: declare agent preset')
-
-  ctx.logger?.info?.('jianbao-preset: ready (home=%s)', dshHome())
+  // 预设本体**不在这里注册**。
+  //
+  // 「加载失败」的根因就是这一条曾经存在：在代码里调 ctx.agentPresets.register()，
+  // registry 会用**它自己**所在 Loader 的 baseUrl 解析子行的裸包名
+  // （dsh-agent-preset-registry/lib/index.js:534），桌面版那个 base 在 app.asar 内，
+  // 而 @zws/dsh-jianbao 只存在于 profile 平面 —— 解析不到，行 never started，
+  // mountPreset 抛错，record.broken 被填上，UI 只显示四个字。
+  //
+  // 正确做法（官方 ptc/standard/minimal 全都这样）：
+  // 在 bundle patch 里写一条 name 为 @deepseek-ai/dsh-agent-preset 的 Loader 行，
+  // 插件行放进它的 config.plugins。AgentPreset 声明了 static [EntryGroup.key] = true，
+  // Loader 会把 plugins 挂成**真正的子行**，与声明行同平面解析，本包可见。
+  //
+  // 这个模块现在就只负责一件启动期的事：把随包技能落到 $DSH_HOME/jianbao/skills
+  // （补丁里的 customSkillDirs 用 dshHomePath 指那个路径）。
+  ctx.logger?.info?.('jianbao-preset: ready (home=%s, preset declared in bundle patch)', dshHome())
 }
 
 export default { name, inject, apply }

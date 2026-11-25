@@ -11,7 +11,10 @@ import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 
 const profileName = process.argv[2] ?? 'desktop'
-const ROW_IDS = ['jianbao', 'jianbao-preset']
+// preset-jianbao 是 @deepseek-ai/dsh-agent-preset 的声明行（官方形状）。
+// 早先叫 jianbao-preset 并由代码 ctx.agentPresets.register() 注册 —— 那条路径
+// 在桌面版里必然 broken（registry 用它自己的 baseUrl 解析子行裸包名，asar 内解析不到 @zws/*）。
+const ROW_IDS = ['jianbao', 'preset-jianbao']
 
 function findDshPackage() {
   const candidates = [

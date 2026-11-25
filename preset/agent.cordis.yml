@@ -39,8 +39,17 @@
   config:
     sampleOverCapGlobResults: false
 
-# ── PTC 运行时：run_code 是本预设唯一的直接工具入口 ────────────────
-# 包名是 dsh-tool-executor-ptc（不是 dsh-tool-ptc —— 后者不存在，写错会让整份预设 broken）
+# ── PTC 运行时（按可用性条件挂载）────────────────────────────────
+#
+# **这一行曾经让整份预设 broken，必须保住一个事实：**
+# registry 解析预设里的**裸包名**时，用的是它自己所在 Loader 的 base
+# （桌面版 = asar 内的 dsh 安装平面），不是 profile 平面。
+#   · @deepseek-ai/dsh-tool-executor-ptc 只随桌面版 asar 发行，npm 安装里没有；
+#   · @zws/dsh-jianbao（下面简报本体那行）只存在于 profile。
+# 两者从「另一个平面」都解析不到，而**任何一行失败都会让整份预设作废**。
+#
+# 所以包里写的是包名，由 preset/index.js 的 resolveRowNames() 在交给 registry 前
+# 把每一行的 name 重新解析成**绝对 file:// URL**；解析不到的整行丢弃（而不是留着炸）。
 - id: tool-executor-ptc
   name: '@deepseek-ai/dsh-tool-executor-ptc'
 
@@ -84,6 +93,8 @@
   name: '@deepseek-ai/dsh-tool-present'
 
 # ── 简报本体：三只工具 + 工作台门控 ───────────────────────────────
+# 包名同样由 resolveRowNames() 改写成绝对 file:// URL —— @zws/dsh-jianbao
+# 只存在于 profile 平面，registry 的 base 解析不到它。
 - id: jianbao
   name: '@zws/dsh-jianbao'
   config:

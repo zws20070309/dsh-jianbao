@@ -45,11 +45,15 @@ test('所有补丁都是 insert 形式（否则会静默变成覆盖并跳过）
   }
 })
 
-test('insert 里同时含插件行与预设行', () => {
+test('insert 里同时含插件行与预设声明行', () => {
+  // 插件行：工作台宿主半
   assert.match(text, /- id: jianbao$/mu)
-  assert.match(text, /name: '@zws\/dsh-jianbao'$/mu)
-  assert.match(text, /- id: jianbao-preset$/mu)
-  assert.match(text, /name: '@zws\/dsh-jianbao\/preset'$/mu)
+  // 预设行：必须是 @deepseek-ai/dsh-agent-preset 官方声明形状，
+  // 而不是我们自己的 @zws/dsh-jianbao/preset。
+  // 后者要在代码里 ctx.agentPresets.register()，而 registry 用它自己的 baseUrl
+  // 解析子行裸包名，桌面版那个 base 在 app.asar 内，@zws/* 解析不到 → 「加载失败」。
+  assert.match(text, /- id: preset-jianbao$/mu)
+  assert.match(text, /name: '@deepseek-ai\/dsh-agent-preset'$/mu)
 })
 
 test('插件行带 inject 与 presetId（门控要靠 presetId 判定）', () => {

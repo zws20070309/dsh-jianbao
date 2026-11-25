@@ -59,7 +59,12 @@ test('工具面：PTC 在、mcp/skill 的宿主工具行不在', () => {
   const def = buildDefinition()
   const names = def.plugins.map((row) => String(row.name ?? ''))
   assert.equal(names.includes('@deepseek-ai/dsh-tool-executor-ptc'), true)
-  assert.equal(names.includes('@zws/dsh-jianbao'), true)
+  // 本包这一行会被 resolveRowName() 改写成绝对 file:// URL（见 preset/index.js 注释：
+  // registry 用 asar 平面的 base 解析裸包名，@zws/dsh-jianbao 只在 profile 平面，
+  // 写包名会让这一行 never started，进而整份预设 broken）。
+  const self = def.plugins.find((row) => row.id === 'jianbao')
+  assert.ok(self !== undefined, '必须有 jianbao 行')
+  assert.match(String(self.name), /^file:\/\/.*dsh-jianbao\/lib\/index\.js$/u)
   // 不挂 mcp-client / terminal / blender / subagent
   assert.equal(names.some((name) => name.includes('mcp-client')), false)
   assert.equal(names.some((name) => name.includes('terminal')), false)

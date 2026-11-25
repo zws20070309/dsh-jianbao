@@ -28,6 +28,10 @@ const steps = [
   { name: '端到端自测', cmd: ['node', ['tools/selftest.mjs']], pass: /SELFTEST PASS/ },
   { name: '客户端契约', cmd: ['node', ['tools/review-client.mjs']], pass: /CLIENT REVIEW PASS/ },
   { name: '真实加载器', cmd: ['node', ['tools/verify-patcher.mjs', profileName]], pass: /VERIFY PATCHER PASS/ },
+  // 最后一步必须做：前面几步都在普通 Node 里跑，看不到 asar 内的模块平面。
+  // 桌面版 DSH 是 Electron，模块全在 app.asar 内，只有用 ELECTRON_RUN_AS_NODE
+  // 起一个探针，才能验证「真机能不能挂上」——test/preset-realplane.test.mjs 就是干这个的。
+  { name: '真机平面挂载', cmd: ['node', ['--test', 'test/preset-realplane.test.mjs']], pass: /fail 0/ },
 ]
 
 let failed = []
