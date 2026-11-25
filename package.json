@@ -32,8 +32,7 @@
     "tools"
   ],
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-locale": ">=0.2.0-rc.1 <0.3.0",
-    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1 <0.3.0"
+    "@deepseek-ai/dsh-client-locale": ">=0.2.0-rc.1 <0.3.0"
   },
   "engines": {
     "node": ">=18"
