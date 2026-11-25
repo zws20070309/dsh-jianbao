@@ -133,6 +133,20 @@ test('insideWorkspace：越界路径被拒绝', async () => {
   await assert.rejects(() => service.importImage('s1', '../../etc/passwd'), /路径越出工作区/u)
 })
 
+test('compileTex：可执行文件不存在时必须失败（不能拿上一次的 PDF 充数）', async () => {
+  const { mkdir: mk, writeFile: wf } = await import('node:fs/promises')
+  const { compileTex } = await import('../lib/compile.js')
+  const dir = join(workspace, 'compile-degrade')
+  await mk(dir, { recursive: true })
+  await wf(join(dir, 'brief.tex'), '\\documentclass{article}\\begin{document}x\\end{document}', 'utf8')
+  // 放一个假的旧 PDF，验证新实现会先删掉它
+  await wf(join(dir, 'brief.pdf'), '%PDF-1.4 stale', 'utf8')
+  const result = await compileTex({ xelatex: 'C:/definitely-not-here/xelatex.exe', workDir: dir, jobName: 'brief' })
+  assert.equal(result.ok, false)
+  assert.equal(result.pdf, null)
+  assert.equal(existsSync(join(dir, 'brief.pdf')), false, '旧 PDF 必须被清掉')
+})
+
 test('cleanup', async () => {
   await rm(workspace, { recursive: true, force: true })
 })

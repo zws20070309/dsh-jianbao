@@ -102,8 +102,27 @@ test('插图：大图独占 / 成对并排，受最大宽高约束', () => {
   })
   assert.match(withImages, new RegExp('width=' + LAYOUT.largeImageWidthCm + 'cm,height=' + LAYOUT.largeImageMaxHeightCm + 'cm', 'u'))
   assert.match(withImages, new RegExp('width=' + LAYOUT.smallImageWidthCm + 'cm', 'u'))
-  assert.match(withImages, /\\hspace\{0\.4cm\}/u)
   assert.match(withImages, /图注/u)
+})
+
+test('成对插图：两张图并排 + 图注各挂图下（tabular 对齐）', () => {
+  const tex = renderTex({
+    ...doc,
+    blocks: [{ type: 'imagePair', srcs: ['assets/a.png', 'assets/b.png'], captions: ['现场讲解', '分组实验'] }],
+  })
+  // 两张图在同一行（用 & 分隔），且整块包在等宽 tabular 里
+  assert.match(tex, /\\begin\{tabular\}.*\n.*includegraphics.*&.*includegraphics/u)
+  assert.match(tex, /现场讲解\} & \{\\FZCc/u)
+  assert.match(tex, /分组实验/u)
+})
+
+test('成对插图：没有图注时不生成 tabular（保持原来的单行并排）', () => {
+  const tex = renderTex({
+    ...doc,
+    blocks: [{ type: 'imagePair', srcs: ['assets/a.png', 'assets/b.png'] }],
+  })
+  assert.equal(/\\begin\{tabular\}/u.test(tex), false)
+  assert.match(tex, /\\includegraphics.*\\hspace\{0\.4cm\}\\includegraphics/u)
 })
 
 test('每页行数：正文区高度 ÷ 28.8pt', () => {
