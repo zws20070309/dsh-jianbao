@@ -92,28 +92,21 @@
 - id: present
   name: '@deepseek-ai/dsh-tool-present'
 
-# ── 简报本体：三只工具 + 工作台门控 ───────────────────────────────
-#
-# **这里指向 ./tools.js，不是包入口。** 这是能否挂上的关键：
-#
-# 包入口 lib/index.js 会 ctx.provide('jianbao', service) 发布工作台 Remote 服务，
-# 而预设里 provide 是死路：
-#   · 不 isolate —— cordis 的 provide 写根 isolate 表（cordis:805），
-#     mountPreset 收尾 leakedServices() 命中后抛
-#     「Preset services require isolate realms: jianbao」；
-#   · 加 isolate —— 服务被隔离进子 scope，网关 collectSrcClaims() 遍历的是
-#     网关自己的 ctx.reflect.props + this.ctx.get(serviceKey)，
-#     实测 isolate 后 root.get('jianbao') === false，网关发现不了，
-#     浏览器侧 remote.jianbao 永远是「未挂载」。
-#
-# tools.js 只注册三只工具、本地 new 一个服务实例当实现、**不 provide**，
-# Remote 服务由上层的 jianbao 行（顶层，不在预设里）提供。
-- id: jianbao
-  name: '@zws/dsh-jianbao/tools'
-  config:
-    presetId: jianbao
-
 # ── 压缩：长会话不挂这个会在上下文打满后直接失败 ──────────────────
+#
+# 注意：**本预设里不再出现任何 @zws/* 行。**
+#
+# 三只简报工具由顶层 jianbao 行（不在预设里）的 apply() 一起注册，全局可见。
+# 原因是预设子行的模块名解析不可靠：
+#   cordis-plugin-loader/lib/index.js:214-227
+#     裸包名 → ctx.loader.internal.import(name, ctx.baseUrl)   // Node 内部 ESM 加载器
+#     相对名 → new URL(name, ctx.baseUrl)
+#   而 registry 的 baseUrl 在桌面版指向 asar 内 —— 实测那一片解析不到 @zws/*；
+#   指向 profile 时又解析不到 @deepseek-ai/*。两个平面都不可靠。
+#
+# 让 @zws 彻底离开 config.plugins，这个变量就不存在了。
+# 副作用：工具在别的预设会话里也可见 —— 可接受：没有 .jianbao/ 工程时工具会
+# 明确回「还没有简报数据」；工作台入口仍由 gate 按 preset 控制，别的会话看不到标签。
 - id: compaction
   name: cordis:group
   group: true

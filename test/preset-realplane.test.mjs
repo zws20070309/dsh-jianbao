@@ -91,8 +91,14 @@ test('真机 asar 平面：顶层服务行 + 预设声明行各 1 份', async (t
   // 预设声明行
   assert.equal(r.rows['preset-jianbao'].count, 1, '预设声明行应恰好 1 份')
   assert.equal(r.rows['preset-jianbao'].name, '@deepseek-ai/dsh-agent-preset')
-  // 预设内层：只注册工具的那一份
-  assert.ok(r.preset.pluginIds.includes('jianbao'), '预设内层必须有 jianbao 工具行')
+  // 预设内层**不该**有 @zws 行：三只工具由顶层 apply() 一起注册。
+  // 理由见 preset/agent.cordis.yml 里 compaction 上方的注释 ——
+  // 预设子行的模块名由 registry 自己的 baseUrl 解析，两个平面都不可靠。
+  assert.equal(
+    r.preset.pluginIds.includes('jianbao'),
+    false,
+    '预设里不该有 jianbao 行',
+  )
 })
 
 test('真机 asar 平面：预设声明含 15 行、提示词已内联', async (t) => {
@@ -100,8 +106,8 @@ test('真机 asar 平面：预设声明含 15 行、提示词已内联', async (
   const r = probeRealPlane()
   assert.equal(r.preset.id, 'jianbao')
   assert.equal(r.preset.name, '简报模式')
-  assert.equal(r.preset.pluginIds.length, 15)
-  for (const need of ['persona', 'tool-pwsh', 'tool-fs', 'tool-executor-ptc', 'jianbao', 'compaction']) {
+  assert.equal(r.preset.pluginIds.length, 14)
+  for (const need of ['persona', 'tool-pwsh', 'tool-fs', 'tool-executor-ptc', 'compaction']) {
     assert.ok(r.preset.pluginIds.includes(need), '缺行: ' + need)
   }
   assert.equal(r.preset.pluginIds.includes('agent-instructions'), false, '不许注入 AGENTS.md')

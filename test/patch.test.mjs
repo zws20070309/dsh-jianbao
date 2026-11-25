@@ -60,13 +60,23 @@ test('补丁含两条行：顶层服务行 + 预设声明行', () => {
   assert.match(text, /name: '@deepseek-ai\/dsh-agent-preset'$/mu)
 })
 
-test('内层 jianbao 行指向 ./tools 且带 presetId', () => {
-  // 内层必须指向 tools.js（只注册工具、不 provide），不能指向包入口 ——
-  // 包入口会 provide 服务，在预设里挂不上（原因见 lib/tools.js 顶部）。
-  assert.match(text, /name: '@zws\/dsh-jianbao\/tools'$/mu)
-  assert.match(text, /presetId: jianbao/u)
-  const inner = text.split('\n').filter((l) => /^          - id: jianbao$/u.test(l))
-  assert.equal(inner.length, 1, '预设内层必须有且只有一行 jianbao')
+test('预设里不出现任何 @zws 行（模块解析平面不可靠）', () => {
+  // 预设子行的模块名由 registry 自己的 baseUrl 解析：
+  //   cordis-plugin-loader/lib/index.js:214-227
+  //     裸包名 → ctx.loader.internal.import(name, ctx.baseUrl)  // Node 内部 ESM
+  //     相对名 → new URL(name, ctx.baseUrl)
+  // 桌面版 registry 的 baseUrl 指向 asar 内，实测那一片解析不到 @zws/*；
+  // 指向 profile 时又解析不到 @deepseek-ai/*。两个平面都不可靠。
+  //
+  // 所以三只工具改由顶层 jianbao 行的 apply() 一起注册，预设里只留官方包名。
+  const live = text
+    .split('\n')
+    .filter((line) => !/^\s*#/u.test(line))
+    .join('\n')
+  const hits = live.match(/name: '@zws\/[^']*'/gu) ?? []
+  // 只允许出现一次 —— 就是顶层那行 jianbao（服务 + 工具）。
+  assert.equal(hits.length, 1, '预设里不许有 @zws 行，但顶层那行必须有。实际: ' + hits.join(', '))
+  assert.equal(hits[0], "name: '@zws/dsh-jianbao'")
 })
 
 test('bundle 层与 profile 层不重复插入（bundle 已经 insert 过，profile 不能再 insert）', () => {

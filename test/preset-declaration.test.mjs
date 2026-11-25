@@ -52,11 +52,14 @@ test('预设行用 @deepseek-ai/dsh-agent-preset 声明（官方形状）', () =
 test('插件行齐全：15 行，且不含 agent-instructions', () => {
   const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
   const plugins = preset.config.plugins
-  assert.equal(plugins.length, 15, '插件行数量变了要同步改这条断言')
+  assert.equal(plugins.length, 14, '插件行数量变了要同步改这条断言')
   const ids = plugins.map((r) => r.id)
-  for (const need of ['persona', 'tool-pwsh', 'tool-fs', 'tool-executor-ptc', 'jianbao', 'compaction']) {
+  for (const need of ['persona', 'tool-pwsh', 'tool-fs', 'tool-executor-ptc', 'compaction']) {
     assert.ok(ids.includes(need), '缺行: ' + need)
   }
+  // 预设里**不该**有 jianbao 行：三只工具由顶层 apply() 一起注册。
+  // 原因见 preset/agent.cordis.yml 里 compaction 上方的注释（模块解析平面不可靠）。
+  assert.equal(ids.includes('jianbao'), false, '预设里不许有 @zws 行')
   assert.equal(ids.includes('agent-instructions'), false, '不许注入 AGENTS.md')
   assert.equal(ids.includes('tool-bash'), true, '两个 shell 行都在，靠 disabled 二选一')
 })
@@ -70,21 +73,19 @@ test('提示词已内联进 persona.prefix（不留占位符）', () => {
   assert.match(prefix, /简报/u)
 })
 
-test('预设内层的 jianbao 行指向 ./tools，不指向包入口', () => {
-  const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
-  const self = preset.config.plugins.find((r) => r.id === 'jianbao')
-  // 包入口 lib/index.js 会 ctx.provide('jianbao', service) 发布 Remote 服务。
-  // 在预设里 provide 服务是死路，两条都不通：
-  //   · 不 isolate → cordis 的 provide 写根 isolate 表（cordis/lib/index.js:805），
-  //     mountPreset 收尾 leakedServices() 命中，抛
-  //       Preset services require isolate realms: jianbao
-  //   · 加 isolate → 服务隔离进子 scope，网关 collectSrcClaims() 用
-  //       this.ctx.get(serviceKey)
-  //     取实例，实测 isolate 后 root.get 为 false —— 网关发现不了，
-  //     浏览器侧 remote.jianbao 永远「未挂载」。
-  // 所以内层走 ./tools（只注册工具、不 provide），服务由顶层那一行提供。
-  assert.equal(self.name, '@zws/dsh-jianbao/tools')
-  assert.equal(self.isolate, undefined, 'tools 行不 provide 服务，不需要 isolate')
+test('三只工具由顶层 apply() 注册，预设里不放 @zws 行', () => {
+  const rows = loadPatch()[0].insert
+  // 顶层行存在：它 provide Remote 服务 + 提示段，并一起注册三只工具。
+  const top = rows.find((r) => r.id === 'jianbao')
+  assert.ok(top !== undefined, '顶层 jianbao 行必须在')
+  assert.equal(top.name, '@zws/dsh-jianbao')
+  // 预设里不许有 @zws 行 —— 预设子行的模块名由 registry 自己的 baseUrl 解析
+  // （cordis-plugin-loader/lib/index.js:214-227），桌面版那一片指向 asar 内，
+  // 实测解析不到 @zws/*；指向 profile 时又解析不到 @deepseek-ai/*。
+  // 让 @zws 彻底离开 config.plugins，这个变量就不存在。
+  const preset = rows.find((r) => r.id === 'preset-jianbao')
+  const zwsRows = preset.config.plugins.filter((r) => String(r.name).startsWith('@zws/'))
+  assert.deepEqual(zwsRows, [], '预设里出现了 @zws 行: ' + zwsRows.map((r) => r.name).join(','))
 })
 
 test('compaction 组也必须 isolate（它 provides compaction 服务，同一个坑）', () => {
@@ -94,11 +95,10 @@ test('compaction 组也必须 isolate（它 provides compaction 服务，同一�
   assert.equal(comp.isolate.compaction, true, 'isolate 里必须标 compaction')
 })
 
-test('两块都用包名（声明式路径同平面解析，不需要 file:// 改写）', () => {
+test('声明行本身用官方包名（它必须能被 registry 平面解析）', () => {
   const rows = loadPatch()[0].insert
-  assert.equal(rows.find((r) => r.id === 'jianbao').name, '@zws/dsh-jianbao')
-  const inner = rows.find((r) => r.id === 'preset-jianbao').config.plugins.find((r) => r.id === 'jianbao')
-  assert.equal(inner.name, '@zws/dsh-jianbao/tools')
+  const preset = rows.find((r) => r.id === 'preset-jianbao')
+  assert.equal(preset.name, '@deepseek-ai/dsh-agent-preset')
 })
 
 test('代码注册路径已彻底删除（preset/index.js 不复存在）', () => {
