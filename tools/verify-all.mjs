@@ -24,6 +24,8 @@ const testFiles = readdirSync(root + '/test')
   .map((f) => 'test/' + f)
 
 const steps = [
+  // 最先跑：cordis.patch.yml 是从 preset/ 生成的，手改过就会不一致。
+  { name: '补丁一致性', cmd: ['node', ['tools/build-patch.mjs', '--check']], pass: /PATCH IN SYNC/ },
   { name: '单测', cmd: ['node', ['--test', ...testFiles]], pass: /^# fail 0$|fail 0/m },
   { name: '端到端自测', cmd: ['node', ['tools/selftest.mjs']], pass: /SELFTEST PASS/ },
   { name: '客户端契约', cmd: ['node', ['tools/review-client.mjs']], pass: /CLIENT REVIEW PASS/ },

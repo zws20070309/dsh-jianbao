@@ -12,7 +12,6 @@
     "./render-tex": "./lib/render-tex.js",
     "./env": "./lib/env.js",
     "./gate": "./lib/gate.js",
-    "./preset": "./preset/index.js",
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },

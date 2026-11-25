@@ -1,0 +1,142 @@
+/**
+ * 从 preset/ 目录生成根目录的 cordis.patch.yml —— 单一数据源。
+ *
+ * 唯一可编辑的文件：
+ *   preset/agent.cordis.yml  插件行（模板里写 PROMPT 占位符）
+ *   preset/prompt.md        提示词正文
+ *   preset/preset.yml       显示名/描述/order
+ * 根 cordis.patch.yml 由本脚本生成，不要手改（verify-all 会校验一致性）。
+ *
+ * 用法：
+ *   node tools/build-patch.mjs          生成并写入
+ *   node tools/build-patch.mjs --check  只校验，不一致 exit 1
+ */
+import { readFileSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
+const OUT = join(ROOT, 'cordis.patch.yml')
+const PROMPT_TOKEN = ['{', '{', 'PROMPT', '}', '}'].join('')
+
+function readMeta(text) {
+  const out = {}
+  for (const line of text.split('\n')) {
+    const m = /^([a-z]+):\s*(.*)$/u.exec(line)
+    if (m === null) continue
+    const key = m[1]
+    const raw = m[2]
+    if (key !== 'name' && key !== 'description' && key !== 'order') continue
+    out[key] = key === 'order' ? Number(raw.trim()) : raw.trim()
+  }
+  return out
+}
+
+function blockScalar(body, indent) {
+  const pad = ' '.repeat(indent)
+  return body
+    .replace(/\r\n/gu, '\n')
+    .replace(/\s+$/u, '')
+    .split('\n')
+    .map((line) => (line === '' ? '' : pad + line))
+    .join('\n')
+}
+
+const HEADER = [
+  '# 简报工作台 —— bundle patch（宿主平面）',
+  '#',
+  '# 本文件由 node tools/build-patch.mjs 生成，不要手改。',
+  '# 改插件行 -> preset/agent.cordis.yml；改提示词 -> preset/prompt.md。',
+  '#',
+  '# 两条 insert 行：',
+  '#   jianbao        工作台宿主半（Remote 服务 + 三只工具 + 提示段 + 标签门控）',
+  '#   preset-jianbao 简报模式预设声明',
+  '#',
+  '# 两条都必须写在 - insert: 里。dsh-app-boot 的 applyEntryPatches 语义：',
+  '# 带 insert = 追加新行；不带 insert 的裸 - id: = 覆盖已存在的同名行，',
+  '# 目标不存在时只 warn 一句就跳过（第一版就被这样静默丢过）。',
+  '#',
+  '# 预设为什么写成 @deepseek-ai/dsh-agent-preset 而不是自己调 register()：',
+  '# AgentPreset 声明了 static [EntryGroup.key] = true，',
+  '# Loader 会把 config.plugins 挂成真正的子行，与声明行同平面解析。',
+  '# 而在代码里 ctx.agentPresets.register() 时，registry 用它自己所在 Loader 的',
+  '# baseUrl 解析子行裸包名（dsh-agent-preset-registry/lib/index.js:534）；',
+  '# 桌面版那个 base 在 app.asar 内，@zws/dsh-jianbao 只在 profile 平面 ——',
+  '# 解析不到 -> never started -> mountPreset 抛错 -> broken -> UI 加载失败。',
+  '#',
+  '# 提示词不能留占位符：补丁里的字符串不会被任何代码展开，',
+  '# 占位符会原样进模型提示词。所以这里内联正文。',
+].join('\n')
+
+export function buildPatchText() {
+  const template = readFileSync(join(ROOT, 'preset', 'agent.cordis.yml'), 'utf8')
+  const prompt = readFileSync(join(ROOT, 'preset', 'prompt.md'), 'utf8')
+  const meta = readMeta(readFileSync(join(ROOT, 'preset', 'preset.yml'), 'utf8'))
+
+  const indented = template
+    .replace(/\r\n/gu, '\n')
+    .split('\n')
+    .map((line) => (line.trim() === '' ? '' : '          ' + line))
+    .join('\n')
+
+  // 模板里的形状是块标量：
+  //     prefix: |-
+  //       {{PROMPT}}
+  // 整段（含占位符那一行）替换成真正的正文块标量。
+  const marker = new RegExp(
+    '^( +)prefix: \\|-\\n +' + PROMPT_TOKEN.replace(/[{}]/g, '\\$&') + '[ \\t]*$',
+    'mu',
+  )
+  if (!marker.test(indented)) {
+    throw new Error('preset/agent.cordis.yml 里没找到 prefix 块标量 + 占位符行')
+  }
+  const withPrompt = indented.replace(
+    marker,
+    (all, lead) => lead + 'prefix: |-\n' + blockScalar(prompt, lead.length + 2),
+  )
+
+  const body = [
+    '    - id: preset-jianbao',
+    '      name: \'@deepseek-ai/dsh-agent-preset\'',
+    '      config:',
+    '        id: jianbao',
+    '        name: ' + JSON.stringify(meta.name),
+    '        description: ' + JSON.stringify(meta.description),
+    '        order: ' + meta.order,
+    '        plugins:',
+    withPrompt.replace(/\s+$/u, ''),
+  ].join('\n')
+
+  const head = [
+    '- insert:',
+    '    - id: jianbao',
+    '      name: \'@zws/dsh-jianbao\'',
+    '      inject: [tools, systemPrompt]',
+    '      config:',
+    '        presetId: jianbao',
+    '',
+  ].join('\n')
+
+  return HEADER + '\n' + head + body + '\n'
+}
+
+const check = process.argv.includes('--check')
+const generated = buildPatchText()
+
+if (check) {
+  let existing = ''
+  try {
+    existing = readFileSync(OUT, 'utf8')
+  } catch {
+    existing = ''
+  }
+  if (existing !== generated) {
+    console.error('cordis.patch.yml 与 preset/ 下的源不一致');
+    console.error('跑 node tools/build-patch.mjs 重新生成');
+    process.exit(1)
+  }
+  console.log('PATCH IN SYNC')
+} else {
+  writeFileSync(OUT, generated, 'utf8')
+  console.log('wrote cordis.patch.yml (' + generated.length + ' bytes)')
+}

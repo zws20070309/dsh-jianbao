@@ -71,12 +71,18 @@ test('本包那一行在 patch 里用包名（声明式路径能解析，不需�
   assert.equal(self.name, '@zws/dsh-jianbao')
 })
 
-test('preset/index.js 不再在代码里 register（退役代码注册路径）', () => {
-  const src = readFileSync('D:/Desktop/插件/dsh-jianbao/preset/index.js', 'utf8')
-  const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/u.test(l)).join('\n')
+test('代码注册路径已彻底删除（preset/index.js 不复存在）', () => {
+  // 这个文件曾经在 apply() 里调 ctx.agentPresets.register(def)，
+  // 而 registry 用它自己所在 Loader 的 baseUrl 解析子行裸包名（asar 平面），
+  // @zws/dsh-jianbao 只在 profile 平面 —— 解析不到 → 整份预设 broken。
+  // 留着这个文件就有人可能给它加回补丁行，所以直接删掉。
+  const retired = 'D:/Desktop/插件/dsh-jianbao/preset/index.js'
+  assert.equal(existsSync(retired), false, 'preset/index.js 必须已删除，否则会重新引入代码注册路径')
+  // package.json 也不许再导出它。
+  const pkg = JSON.parse(readFileSync('D:/Desktop/插件/dsh-jianbao/package.json', 'utf8'))
   assert.equal(
-    /\.register\(/u.test(code),
+    Object.keys(pkg.exports).includes('./preset'),
     false,
-    '代码里再调 agentPresets.register() 会重新引入 base 平面不一致的 bug',
+    'package.json 不许再导出 ./preset',
   )
 })
