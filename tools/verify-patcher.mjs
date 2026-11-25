@@ -11,10 +11,14 @@ import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 
 const profileName = process.argv[2] ?? 'desktop'
-// preset-jianbao 是 @deepseek-ai/dsh-agent-preset 的声明行（官方形状）。
-// 早先叫 jianbao-preset 并由代码 ctx.agentPresets.register() 注册 —— 那条路径
-// 在桌面版里必然 broken（registry 用它自己的 baseUrl 解析子行裸包名，asar 内解析不到 @zws/*）。
-const ROW_IDS = ['jianbao', 'preset-jianbao']
+// 只有 preset-jianbao 一行：@deepseek-ai/dsh-agent-preset 的声明行（官方形状），
+// 本包（含三只工具）写在它的 config.plugins 里。
+//
+// **不能有顶层 jianbao 行**：那样两行都会调 ctx.tools.register()，
+// dsh-tools 的 NamedEntries 对同层重复名直接抛错
+//   tool "<name>" is already registered
+// mountPreset 失败，整份预设 broken —— 这就是「加载失败」的直接原因之一。
+const ROW_IDS = ['preset-jianbao']
 
 function findDshPackage() {
   const candidates = [
