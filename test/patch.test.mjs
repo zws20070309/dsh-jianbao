@@ -57,6 +57,20 @@ test('插件行带 inject 与 presetId（门控要靠 presetId 判定）', () =>
   assert.match(text, /presetId: jianbao/u)
 })
 
+test('bundle 层与 profile 层不重复插入（bundle 已经 insert 过，profile 不能再 insert）', () => {
+  const profilePatch = 'C:/Users/USER/.dsh/profiles/desktop/cordis.patch.yml'
+  const text = readFileSync(profilePatch, 'utf8')
+  const live = text
+    .split('\n')
+    .filter((line) => !/^\s*#/u.test(line))
+    .join('\n')
+  assert.equal(
+    live.includes('jianbao'),
+    false,
+    'profile 补丁里出现 jianbao：bundle 层已经插入过这两行，profile 再插一次就是重复 entry',
+  )
+})
+
 test('不覆盖任何官方行：文件里没有裸的官方 id', () => {
   const patches = topLevelPatches(text)
   for (const patch of patches) {

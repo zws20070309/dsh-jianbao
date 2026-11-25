@@ -134,23 +134,42 @@ Write-Host ("dependencies has pkg  : " + $hasDep)
 Write-Host ("bundles has pkg       : " + $hasBundle)
 Write-Host ("client.js visible     : " + (Test-Path -LiteralPath (Join-Path $nmJunction 'lib/client.js')))
 
+# The two cordis rows (jianbao + jianbao-preset) live in THIS PACKAGE's own
+# cordis.patch.yml. Because the package is listed in dsh.profile.bundles, app-boot
+# applies that file as a bundle layer - nothing to add by hand.
+#
+# Do NOT also paste them into the profile's cordis.patch.yml: the bundle layer
+# inserts them first, so a second insert in the user layer mounts the plugin twice
+# (two fibers, duplicated tools and Remote methods) and the failure looks nothing
+# like the cause.
+$userPatch = Join-Path $profileDir 'cordis.patch.yml'
+if (Test-Path -LiteralPath $userPatch) {
+    $patchText = Read-Utf8 $userPatch
+    $liveLines = ($patchText -split "`n") | Where-Object { $_ -notmatch '^s*#' }
+    $dupes = @($liveLines | Where-Object { $_ -match 'jianbao' })
+    if ($dupes.Count -gt 0) {
+        Write-Host ""
+        Write-Host "WARNING: the profile patch already mentions jianbao in $($dupes.Count) line(s):"
+        $dupes | ForEach-Object { Write-Host ("  " + $_) }
+        Write-Host ""
+        Write-Host "These rows belong to the bundle layer and must be REMOVED from the"
+        Write-Host "profile patch, otherwise the plugin is mounted twice."
+        Write-Host "  file: $userPatch"
+        exit 1
+    }
+    Write-Host ("profile patch clean      : no jianbao rows in cordis.patch.yml")
+}
+
 if ($hasDep -and $hasBundle) {
     Write-Host ""
-    Write-Host "MANUAL STEP (required): add these two rows to the profile patch"
-    Write-Host "  $profileDir\cordis.patch.yml"
-    Write-Host ""
+    Write-Host "Rows come from the bundle layer:"
+    Write-Host ("  " + (Join-Path $Source 'cordis.patch.yml'))
     Write-Host "  - insert:"
-    Write-Host "      - id: jianbao"
-    Write-Host "        name: '@zws/dsh-jianbao'"
-    Write-Host "        inject: [tools, systemPrompt]"
-    Write-Host "        config:"
-    Write-Host "          presetId: jianbao"
-    Write-Host "      - id: jianbao-preset"
-    Write-Host "        name: '@zws/dsh-jianbao/preset'"
+    Write-Host "      - id: jianbao        (workspace host half + tools + prompt section)"
+    Write-Host "      - id: jianbao-preset (registers the jianbao agent preset)"
     Write-Host ""
-    Write-Host "The first row mounts the workspace host half; the second declares the"
-    Write-Host "jianbao agent preset. Without them there is no fiber, so the browser half"
-    Write-Host "is never scanned and the tab never appears."
+    Write-Host "Nothing to paste into the profile. Re-check any time with:"
+    Write-Host "  node tools/verify-patcher.mjs $ProfileName"
     Write-Host ""
     Write-Host "INSTALL OK - fully quit and restart DSH for this to take effect (no HMR)."
 } else {
