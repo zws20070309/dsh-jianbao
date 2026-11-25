@@ -1,8 +1,20 @@
 /**
  * 用 dsh-app-boot 自己的加载器验证补丁在真实 profile 里落成什么样。
  *
- * 为什么需要它：`- insert:` vs 裸 `- id:`、bundle 层 vs profile 层，
- * 这两组语义只有真实加载器说了算。自己复述规则不算验证。
+ * ## 为什么不能自己写 require 去验模块能否解析
+ *
+ * dsh-app-boot/lib/index.js:477-481 写明是**两锚点**解析：
+ *   a bundle name resolves first from the dsh installation (the launcher's own
+ *   package), then from the profile directory.
+ *
+ * 它靠 installRuntimeInterception（同文件 :1641）**劫持 Node 默认的 ESM 与
+ * CommonJS 解析器**来实现。裸 createRequire 绕开那层劫持只看得到一个锚点，
+ * 所以「这个包解析不到」用它验必然失真 —— 我踩过：拿裸 Node 得出
+ * 「@deepseek-ai/* 在 profile 平面全解析不到」，回头一看全是假象。
+ *
+ * 这个工具只做它真能做的：真实 loadProfile 拿 patch 层，真实 composeEntries
+ * 拿最终 entry 列表，断言两行的存在性、唯一性与契约字段。模块能否 import 由
+ * DSH 启动时那套双锚点解析负责，测不了就不假装测。
  *
  * 用法：node tools/verify-patcher.mjs [profileName]
  * 退出码：0 正常 / 1 有问题
@@ -11,14 +23,7 @@ import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 
 const profileName = process.argv[2] ?? 'desktop'
-// 只有 preset-jianbao 一行：@deepseek-ai/dsh-agent-preset 的声明行（官方形状），
-// 本包（含三只工具）写在它的 config.plugins 里。
-//
-// **不能有顶层 jianbao 行**：那样两行都会调 ctx.tools.register()，
-// dsh-tools 的 NamedEntries 对同层重复名直接抛错
-//   tool "<name>" is already registered
-// mountPreset 失败，整份预设 broken —— 这就是「加载失败」的直接原因之一。
-const ROW_IDS = ['preset-jianbao']
+const ROW_IDS = ['jianbao', 'preset-jianbao']
 
 function findDshPackage() {
   const candidates = [
@@ -42,15 +47,13 @@ console.log('  profile    : ' + profileName)
 const profile = boot.loadProfile('dsh', profileName, installAnchor, home)
 console.log('  bundle 层数: ' + profile.layers.length)
 
-// 1) patch 行来源
 const sources = new Map()
 for (const layer of profile.layers) {
   for (const patch of layer.patches) {
     const rows = patch.insert ?? (patch.id ? [{ id: patch.id }] : [])
     for (const row of rows) {
       if (!row.id || !ROW_IDS.includes(row.id)) continue
-      const key = row.id
-      sources.set(key, [...(sources.get(key) ?? []), 'bundle:' + layer.packageName])
+      sources.set(row.id, [...(sources.get(row.id) ?? []), 'bundle:' + layer.packageName])
     }
   }
 }
@@ -72,7 +75,6 @@ for (const id of ROW_IDS) {
   console.log('  ' + id.padEnd(16) + tag + '  ' + (from.join(' + ') || '(无)'))
 }
 
-// 2) 最终 entry 列表
 const all = [...profile.layers.flatMap((l) => l.patches), ...(profile.patches ?? [])]
 const rows = boot.composeEntries(all)
 const ids = rows.map((r) => r.id)
@@ -87,7 +89,6 @@ for (const id of ROW_IDS) {
   console.log('  ' + id.padEnd(16) + tag + extra)
 }
 
-// 3) 插件行必须带 inject 与 presetId
 const pluginRow = rows.find((r) => r.id === 'jianbao')
 if (pluginRow !== undefined) {
   const injectOk = Array.isArray(pluginRow.inject) && pluginRow.inject.includes('tools') && pluginRow.inject.includes('systemPrompt')
@@ -97,6 +98,19 @@ if (pluginRow !== undefined) {
   console.log('  inject  : ' + (injectOk ? 'OK' : 'FAIL') + ' ' + JSON.stringify(pluginRow.inject))
   console.log('  presetId: ' + (presetOk ? 'OK' : 'FAIL') + ' ' + JSON.stringify(pluginRow.config?.presetId))
   if (!injectOk || !presetOk) bad += 1
+}
+
+const presetRow = rows.find((r) => r.id === 'preset-jianbao')
+if (presetRow !== undefined) {
+  const plugins = presetRow.config?.plugins ?? []
+  const zws = plugins.filter((r) => String(r.name).startsWith('@zws/'))
+  console.log('')
+  console.log('=== 预设声明 ===')
+  console.log('  id      : ' + JSON.stringify(presetRow.config?.id))
+  console.log('  name    : ' + JSON.stringify(presetRow.config?.name))
+  console.log('  plugins : ' + plugins.length)
+  console.log('  @zws 行 : ' + zws.length + (zws.length === 0 ? ' (OK)' : ' (FAIL)'))
+  if (plugins.length === 0) bad += 1
 }
 
 console.log('')
