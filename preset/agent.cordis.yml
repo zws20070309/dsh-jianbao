@@ -94,20 +94,22 @@
 
 # ── 简报本体：三只工具 + 工作台门控 ───────────────────────────────
 #
-# **isolate: jianbao 不能省。** 这一行的 apply() 里有 ctx.provide('jianbao', service)
-# 发布 Remote 服务，而 cordis 的 provide 会把服务写进 root 的 isolate 表
-#   this.ctx.root[symbols.isolate][name] ??= Symbol(name)   （cordis/lib/index.js:805）
-# 于是 mountPreset 结束时 leakedServices() 会把它判成「发布到根 realm 的服务」：
-#   if (rootIsolate[impl.name] === key) leaked.push(impl.name)
-#   if (leaked.length > 0) throw new Error('Preset services require isolate realms: ...')
-# —— 整份预设挂不上，UI 只显示四个字「加载失败」。
+# **这里指向 ./tools.js，不是包入口。** 这是能否挂上的关键：
 #
-# 加 isolate 之后这一行的服务在自己的 realm 里，不再泄漏到根。
-# 下面 compaction 组带 isolate 是同一个道理（它 provides compaction 服务）。
+# 包入口 lib/index.js 会 ctx.provide('jianbao', service) 发布工作台 Remote 服务，
+# 而预设里 provide 是死路：
+#   · 不 isolate —— cordis 的 provide 写根 isolate 表（cordis:805），
+#     mountPreset 收尾 leakedServices() 命中后抛
+#     「Preset services require isolate realms: jianbao」；
+#   · 加 isolate —— 服务被隔离进子 scope，网关 collectSrcClaims() 遍历的是
+#     网关自己的 ctx.reflect.props + this.ctx.get(serviceKey)，
+#     实测 isolate 后 root.get('jianbao') === false，网关发现不了，
+#     浏览器侧 remote.jianbao 永远是「未挂载」。
+#
+# tools.js 只注册三只工具、本地 new 一个服务实例当实现、**不 provide**，
+# Remote 服务由上层的 jianbao 行（顶层，不在预设里）提供。
 - id: jianbao
-  name: '@zws/dsh-jianbao'
-  isolate:
-    jianbao: true
+  name: '@zws/dsh-jianbao/tools'
   config:
     presetId: jianbao
 

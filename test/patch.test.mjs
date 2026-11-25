@@ -45,21 +45,25 @@ test('所有补丁都是 insert 形式（否则会静默变成覆盖并跳过）
   }
 })
 
-test('只有一条 preset-jianbao 声明行，且是官方 @deepseek-ai/dsh-agent-preset 形状', () => {
+test('补丁含两条行：顶层服务行 + 预设声明行', () => {
+  // 顶层：provide 工作台 Remote 服务 + 常驻提示段。必须在预设外面 ——
+  // 预设里 provide 服务会两头堵死：
+  //   不 isolate → leakedServices 判「泄漏到根 realm」，mountPreset 抛
+  //     Preset services require isolate realms；
+  //   加 isolate → 服务隔离进子 scope，网关 collectSrcClaims() 用
+  //     this.ctx.get(serviceKey) 取不到（实测 root.get 为 false），
+  //     remote.jianbao 永远「未挂载」。
+  assert.match(text, /- id: jianbao$/mu)
+  assert.match(text, /name: '@zws\/dsh-jianbao'$/mu)
+  // 预设声明行
   assert.match(text, /- id: preset-jianbao$/mu)
   assert.match(text, /name: '@deepseek-ai\/dsh-agent-preset'$/mu)
-  // **不许再插顶层 jianbao 行。**
-  // 本包在预设的 config.plugins 里已经有一行（内层 jianbao），负责注册三只工具。
-  // 顶层再来一行同名插件，两行都会调 ctx.tools.register()，而 dsh-tools 的
-  // NamedEntries 冲突消息是 tool "<name>" is already registered —— 同层重复注册
-  // 直接抛错，整份预设 mountPreset 失败，UI 只显示「加载失败」。
-  const topLevel = text.split('\n').filter((l) => /^    - id: jianbao$/u.test(l))
-  assert.equal(topLevel.length, 0, '不许有顶层 jianbao 行（会与预设内层重复注册工具）')
 })
 
-test('内层 jianbao 行带 presetId（门控要靠它判定）', () => {
-  // inject 由插件自己声明（lib/index.js 的 export const inject），不写在补丁里。
-  // 补丁里只需要 presetId —— 门控读它判断「这是不是简报预设的会话」。
+test('内层 jianbao 行指向 ./tools 且带 presetId', () => {
+  // 内层必须指向 tools.js（只注册工具、不 provide），不能指向包入口 ——
+  // 包入口会 provide 服务，在预设里挂不上（原因见 lib/tools.js 顶部）。
+  assert.match(text, /name: '@zws\/dsh-jianbao\/tools'$/mu)
   assert.match(text, /presetId: jianbao/u)
   const inner = text.split('\n').filter((l) => /^          - id: jianbao$/u.test(l))
   assert.equal(inner.length, 1, '预设内层必须有且只有一行 jianbao')

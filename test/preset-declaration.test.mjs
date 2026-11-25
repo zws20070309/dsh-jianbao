@@ -23,15 +23,17 @@ function loadPatch() {
   return yaml.load(text)
 }
 
-test('补丁是单条 insert，只含 preset-jianbao 一行', () => {
+test('补丁是单条 insert，含顶层服务行与预设声明行', () => {
   const patches = loadPatch()
   assert.equal(patches.length, 1)
   assert.ok(Array.isArray(patches[0].insert), '必须是 - insert: 形式')
   const ids = patches[0].insert.map((r) => r.id)
-  // 只有声明行。顶层 jianbao 行必须不存在 —— 预设内层已经有一行 jianbao，
-  // 两行都会调 ctx.tools.register()，同层重复注册抛错（dsh-tools:
-  // tool "<name>" is already registered），整份预设挂不上。
-  assert.deepEqual(ids, ['preset-jianbao'])
+  assert.deepEqual(ids, ['jianbao', 'preset-jianbao'])
+  // 两条行职责不同，缺一不可：
+  //   顶层 jianbao        → provide 工作台 Remote 服务 + 常驻提示段（必须在预设外）
+  //   preset-jianbao      → 声明「简报模式」，其 config.plugins 里再挂一份 tools 行
+  const top = patches[0].insert.find((r) => r.id === 'jianbao')
+  assert.equal(top.name, '@zws/dsh-jianbao')
 })
 
 test('预设行用 @deepseek-ai/dsh-agent-preset 声明（官方形状）', () => {
@@ -68,18 +70,22 @@ test('提示词已内联进 persona.prefix（不留占位符）', () => {
   assert.match(prefix, /简报/u)
 })
 
-test('jianbao 行必须声明 isolate：它 provide 服务，泄漏到根 realm 会让整份预设挂不上', () => {
+test('预设内层的 jianbao 行指向 ./tools，不指向包入口', () => {
   const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
   const self = preset.config.plugins.find((r) => r.id === 'jianbao')
-  // 这一行 apply() 里有 ctx.provide('jianbao', service)。cordis 的 provide 写的是
-  //   this.ctx.root[symbols.isolate][name] ??= Symbol(name)   (cordis/lib/index.js:805)
-  // 于是 mountPreset 结束时 leakedServices() 命中：
-  //   if (rootIsolate[impl.name] === key) leaked.push(impl.name)
-  //   if (leaked.length > 0) throw new Error('Preset services require isolate realms: ...')
-  // 整份预设 broken，UI 只剩「加载失败」四个字。
-  assert.ok(self.isolate !== undefined, 'jianbao 行必须有 isolate');
-  assert.equal(self.isolate.jianbao, true, 'isolate 里必须标 jianbao');
-});
+  // 包入口 lib/index.js 会 ctx.provide('jianbao', service) 发布 Remote 服务。
+  // 在预设里 provide 服务是死路，两条都不通：
+  //   · 不 isolate → cordis 的 provide 写根 isolate 表（cordis/lib/index.js:805），
+  //     mountPreset 收尾 leakedServices() 命中，抛
+  //       Preset services require isolate realms: jianbao
+  //   · 加 isolate → 服务隔离进子 scope，网关 collectSrcClaims() 用
+  //       this.ctx.get(serviceKey)
+  //     取实例，实测 isolate 后 root.get 为 false —— 网关发现不了，
+  //     浏览器侧 remote.jianbao 永远「未挂载」。
+  // 所以内层走 ./tools（只注册工具、不 provide），服务由顶层那一行提供。
+  assert.equal(self.name, '@zws/dsh-jianbao/tools')
+  assert.equal(self.isolate, undefined, 'tools 行不 provide 服务，不需要 isolate')
+})
 
 test('compaction 组也必须 isolate（它 provides compaction 服务，同一个坑）', () => {
   const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
@@ -88,10 +94,11 @@ test('compaction 组也必须 isolate（它 provides compaction 服务，同一�
   assert.equal(comp.isolate.compaction, true, 'isolate 里必须标 compaction')
 })
 
-test('本包那一行在 patch 里用包名（声明式路径能解析，不需要 file:// 改写）', () => {
-  const preset = loadPatch()[0].insert.find((r) => r.id === 'preset-jianbao')
-  const self = preset.config.plugins.find((r) => r.id === 'jianbao')
-  assert.equal(self.name, '@zws/dsh-jianbao')
+test('两块都用包名（声明式路径同平面解析，不需要 file:// 改写）', () => {
+  const rows = loadPatch()[0].insert
+  assert.equal(rows.find((r) => r.id === 'jianbao').name, '@zws/dsh-jianbao')
+  const inner = rows.find((r) => r.id === 'preset-jianbao').config.plugins.find((r) => r.id === 'jianbao')
+  assert.equal(inner.name, '@zws/dsh-jianbao/tools')
 })
 
 test('代码注册路径已彻底删除（preset/index.js 不复存在）', () => {

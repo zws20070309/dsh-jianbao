@@ -25,10 +25,23 @@ async function makeCtx(workspace) {
 
 const workspace = join(tmpdir(), 'dsh-jianbao-test-' + process.pid)
 
+/**
+ * 把两个入口都挂上 —— 与真实 DSH 的挂载形状一致。
+ *
+ * 顶层 jianbao 行（apply）provide 工作台 Remote 服务 + 常驻提示段；
+ * 预设内 jianbao 行（tools.js）只注册三只工具。
+ * 拆开的原因见 lib/tools.js 顶部：预设里 provide 服务两头堵死
+ * （不 isolate 被 leakedServices 判泄漏；isolate 了网关又发现不了 Remote）。
+ */
+function mountAll(ctx) {
+  plugin.apply(ctx)
+  plugin.createToolRegistrar(ctx)()
+}
+
 test('apply：注册服务、系统提示段与三只工具', async () => {
   await mkdir(workspace, { recursive: true })
   const { ctx, state } = await makeCtx(workspace)
-  plugin.apply(ctx)
+  mountAll(ctx)
   assert.equal(state.provided.get('jianbao')?.constructor?.name, 'JianbaoService')
   assert.equal(state.sections.length, 1)
   assert.equal(state.sections[0].name, 'jianbao:spec')
@@ -46,7 +59,7 @@ test('apply：注册服务、系统提示段与三只工具', async () => {
 test('jianbao_save：写盘 + 出 .tex，本机有 LaTeX 时出 PDF', async () => {
   await mkdir(workspace, { recursive: true })
   const { ctx, state } = await makeCtx(workspace)
-  plugin.apply(ctx)
+  mountAll(ctx)
   const exec = { agent: { session: { header: { cwd: workspace, id: 's1' } } } }
   const blocks = [
     { type: 'p', text: '为了深入贯彻落实立德树人根本任务，4月27日，理学院举办第三届心理健康知识竞赛，2026级全体学生参加。' },
@@ -92,7 +105,7 @@ test('jianbao_render：没有简报时报缺数据，有简报时读同一份', 
   const empty = join(workspace, 'empty')
   await mkdir(empty, { recursive: true })
   const a = await makeCtx(empty)
-  plugin.apply(a.ctx)
+  mountAll(a.ctx)
   const exec = { agent: { session: { header: { cwd: empty, id: 's1' } } } }
   const missing = await a.state.tools.get('jianbao_render').execute({}, exec)
   assert.equal(missing.ok, false)
@@ -102,7 +115,7 @@ test('jianbao_render：没有简报时报缺数据，有简报时读同一份', 
 test('jianbao_state：读回表单/简报/环境/产物', async () => {
   await mkdir(workspace, { recursive: true })
   const { ctx, state } = await makeCtx(workspace)
-  plugin.apply(ctx)
+  mountAll(ctx)
   const exec = { agent: { session: { header: { cwd: workspace, id: 's1' } } } }
   const service = state.provided.get('jianbao')
   await service.saveForm('s1', { topic: '测试主题' })
@@ -117,7 +130,7 @@ test('jianbao_state：读回表单/简报/环境/产物', async () => {
 test('uploadImage：base64 落地到 assets，路径是相对 out/ 的 Posix 形式', async () => {
   await mkdir(workspace, { recursive: true })
   const { ctx, state } = await makeCtx(workspace)
-  plugin.apply(ctx)
+  mountAll(ctx)
   const service = state.provided.get('jianbao')
   // 1x1 PNG
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -131,7 +144,7 @@ test('uploadImage：base64 落地到 assets，路径是相对 out/ 的 Posix 形
 test('insideWorkspace：越界路径被拒绝', async () => {
   await mkdir(workspace, { recursive: true })
   const { ctx, state } = await makeCtx(workspace)
-  plugin.apply(ctx)
+  mountAll(ctx)
   const service = state.provided.get('jianbao')
   await assert.rejects(() => service.importImage('s1', '../../etc/passwd'), /路径越出工作区/u)
 })

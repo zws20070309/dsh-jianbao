@@ -120,6 +120,23 @@ export function buildPatchText() {
   // 所以顶层那一行不但多余，还有害。
   const head = [
     '- insert:',
+    '    # 顶层服务行：provide 工作台 Remote 服务 + 常驻提示段。',
+    '    #',
+    '    # **必须在预设外面。** 预设里 provide 服务是死路：',
+    '    #   · 不 isolate → cordis 把服务写进根 isolate 表（cordis:805），',
+    '    #     mountPreset 收尾 leakedServices() 命中后抛',
+    '    #     「Preset services require isolate realms: jianbao」，整份预设挂不上；',
+    '    #   · 加 isolate → 服务隔离进预设子 scope，网关 collectSrcClaims() 遍历的是',
+    '    #     网关自己的 ctx.reflect.props + this.ctx.get(serviceKey)，',
+    '    #     实测 root.get(jianbao) === false，网关发现不了，',
+    '    #     浏览器侧 remote.jianbao 永远「未挂载」。',
+    '    #',
+    '    # 官方所有 preset 的插件行都只注册工具、不 provide 服务，就是这个原因。',
+    '    - id: jianbao',
+    "      name: '@zws/dsh-jianbao'",
+    '      inject: [tools, systemPrompt]',
+    '      config:',
+    '        presetId: jianbao',
     '',
   ].join('\n')
 
