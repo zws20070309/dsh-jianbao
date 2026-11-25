@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Briefing",
+    "description": "Briefing workbench: fill in the basics, let the model draft to spec, compile a PDF with XeLaTeX (A4, 3.7/3.5/2.8/2.6 cm margins, fixed 28.8 pt leading, 16 pt FangSong body, CC block pinned to the last page). Falls back to .tex only when LaTeX is missing."
+  }
+}

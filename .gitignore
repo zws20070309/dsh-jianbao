@@ -1,0 +1,21 @@
+node_modules/
+.tuiwen/
+*.log
+*.aux
+*.out
+*.toc
+*.xdv
+_probe/
+incoming/
+
+# 参考文件里的二进制产物不进仓库（PyInstaller 打的 exe / pkg / pyz 合计 120MB+）。
+# 反编译依据的 Python 源码与说明文档保留，它们是本插件版式与规则的出处。
+参考文件/exe_tools/*.exe
+参考文件/source_code/dist/
+参考文件/source_code/build/
+参考文件/source_code/__pycache__/
+*.exe
+*.pkg
+*.pyz
+*.pyc
+*.zip

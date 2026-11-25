@@ -1,0 +1,64 @@
+{
+  "name": "@zws/dsh-tuiwen",
+  "version": "1.0.0",
+  "description": "简报工作台：DSH 里填基本信息 → 模型按版式规范写简报 → XeLaTeX 编译出 PDF。纸张 A4、页边距 3.7/3.5/2.8/2.6cm、行距固定 28.8 磅、正文 3 号方正仿宋、一/二/三级标题按规范，抄送区压末页底部、页脚「— N —」。没有 LaTeX 时降级为只出 .tex。",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./brief": "./lib/brief.js",
+    "./render-tex": "./lib/render-tex.js",
+    "./env": "./lib/env.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zws20070309/dsh-tuiwen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zws20070309/dsh-tuiwen/issues"
+  },
+  "homepage": "https://github.com/zws20070309/dsh-tuiwen#readme",
+  "files": [
+    "lib",
+    "locale",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "tools"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-locale": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1 <0.3.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "briefing",
+    "brief",
+    "latex",
+    "xelatex",
+    "pdf",
+    "简报"
+  ],
+  "license": "MIT"
+}
