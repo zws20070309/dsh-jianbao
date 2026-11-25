@@ -23,12 +23,15 @@ function loadPatch() {
   return yaml.load(text)
 }
 
-test('补丁是单条 insert，两行都在里面', () => {
+test('补丁是单条 insert，只含 preset-jianbao 一行', () => {
   const patches = loadPatch()
   assert.equal(patches.length, 1)
   assert.ok(Array.isArray(patches[0].insert), '必须是 - insert: 形式')
   const ids = patches[0].insert.map((r) => r.id)
-  assert.deepEqual(ids, ['jianbao', 'preset-jianbao'])
+  // 只有声明行。顶层 jianbao 行必须不存在 —— 预设内层已经有一行 jianbao，
+  // 两行都会调 ctx.tools.register()，同层重复注册抛错（dsh-tools:
+  // tool "<name>" is already registered），整份预设挂不上。
+  assert.deepEqual(ids, ['preset-jianbao'])
 })
 
 test('预设行用 @deepseek-ai/dsh-agent-preset 声明（官方形状）', () => {

@@ -107,13 +107,19 @@ export function buildPatchText() {
     withPrompt.replace(/\s+$/u, ''),
   ].join('\n')
 
+  // **只插 preset-jianbao 一行，不额外插顶层 jianbao 行。**
+  //
+  // 这是重启后仍然「加载失败」的直接原因。本包在预设的 config.plugins 里已经有一行
+  // （内层 jianbao），负责注册三只工具 jianbao_state / jianbao_save / jianbao_render。
+  // 如果顶层再插一行同名插件，两行都会调 ctx.tools.register()，而
+  //   dsh-tools/lib/index.js 的 NamedEntries 冲突消息是：
+  //     tool "<name>" is already registered
+  // —— 同层重复注册直接抛错，整份预设 mountPreset 失败，UI 只显示「加载失败」。
+  //
+  // 预设子行继承声明行的平面，能解析到 profile 平面里的 @zws/dsh-jianbao，
+  // 所以顶层那一行不但多余，还有害。
   const head = [
     '- insert:',
-    '    - id: jianbao',
-    '      name: \'@zws/dsh-jianbao\'',
-    '      inject: [tools, systemPrompt]',
-    '      config:',
-    '        presetId: jianbao',
     '',
   ].join('\n')
 

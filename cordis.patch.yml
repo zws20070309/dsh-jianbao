@@ -22,11 +22,6 @@
 # 提示词不能留占位符：补丁里的字符串不会被任何代码展开，
 # 占位符会原样进模型提示词。所以这里内联正文。
 - insert:
-    - id: jianbao
-      name: '@zws/dsh-jianbao'
-      inject: [tools, systemPrompt]
-      config:
-        presetId: jianbao
     - id: preset-jianbao
       name: '@deepseek-ai/dsh-agent-preset'
       config:

@@ -80,13 +80,16 @@ function probeRealPlane() {
   return JSON.parse(line.slice('JIANBAO_PROBE '.length))
 }
 
-test('真机 asar 平面：两行各合成 1 份', async (t) => {
+test('真机 asar 平面：只有 preset-jianbao 一行，且本包只在预设内层出现一次', async (t) => {
   if (!hasElectron) { t.skip('未找到桌面版安装'); return }
   const r = probeRealPlane()
-  assert.equal(r.rows.jianbao.count, 1, '插件行应恰好 1 份（多份会挂载两次）')
-  assert.equal(r.rows['preset-jianbao'].count, 1, '预设行应恰好 1 份')
-  assert.equal(r.rows.jianbao.name, '@zws/dsh-jianbao')
+  assert.equal(r.rows['preset-jianbao'].count, 1, '预设声明行应恰好 1 份')
   assert.equal(r.rows['preset-jianbao'].name, '@deepseek-ai/dsh-agent-preset')
+  // 顶层 jianbao 行必须为 0：预设内层已经有一行 jianbao，
+  // 两行都会调 ctx.tools.register()，同层重复注册抛错
+  // （dsh-tools: tool "<name>" is already registered），整份预设挂不上。
+  assert.equal(r.rows.jianbao.count, 0, '不许有顶层 jianbao 行')
+  assert.ok(r.preset.pluginIds.includes('jianbao'), '本包必须在预设内层出现')
 })
 
 test('真机 asar 平面：预设声明含 15 行、提示词已内联', async (t) => {

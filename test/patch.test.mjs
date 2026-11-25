@@ -45,20 +45,24 @@ test('所有补丁都是 insert 形式（否则会静默变成覆盖并跳过）
   }
 })
 
-test('insert 里同时含插件行与预设声明行', () => {
-  // 插件行：工作台宿主半
-  assert.match(text, /- id: jianbao$/mu)
-  // 预设行：必须是 @deepseek-ai/dsh-agent-preset 官方声明形状，
-  // 而不是我们自己的 @zws/dsh-jianbao/preset。
-  // 后者要在代码里 ctx.agentPresets.register()，而 registry 用它自己的 baseUrl
-  // 解析子行裸包名，桌面版那个 base 在 app.asar 内，@zws/* 解析不到 → 「加载失败」。
+test('只有一条 preset-jianbao 声明行，且是官方 @deepseek-ai/dsh-agent-preset 形状', () => {
   assert.match(text, /- id: preset-jianbao$/mu)
   assert.match(text, /name: '@deepseek-ai\/dsh-agent-preset'$/mu)
+  // **不许再插顶层 jianbao 行。**
+  // 本包在预设的 config.plugins 里已经有一行（内层 jianbao），负责注册三只工具。
+  // 顶层再来一行同名插件，两行都会调 ctx.tools.register()，而 dsh-tools 的
+  // NamedEntries 冲突消息是 tool "<name>" is already registered —— 同层重复注册
+  // 直接抛错，整份预设 mountPreset 失败，UI 只显示「加载失败」。
+  const topLevel = text.split('\n').filter((l) => /^    - id: jianbao$/u.test(l))
+  assert.equal(topLevel.length, 0, '不许有顶层 jianbao 行（会与预设内层重复注册工具）')
 })
 
-test('插件行带 inject 与 presetId（门控要靠 presetId 判定）', () => {
-  assert.match(text, /inject: \[tools, systemPrompt\]/u)
+test('内层 jianbao 行带 presetId（门控要靠它判定）', () => {
+  // inject 由插件自己声明（lib/index.js 的 export const inject），不写在补丁里。
+  // 补丁里只需要 presetId —— 门控读它判断「这是不是简报预设的会话」。
   assert.match(text, /presetId: jianbao/u)
+  const inner = text.split('\n').filter((l) => /^          - id: jianbao$/u.test(l))
+  assert.equal(inner.length, 1, '预设内层必须有且只有一行 jianbao')
 })
 
 test('bundle 层与 profile 层不重复插入（bundle 已经 insert 过，profile 不能再 insert）', () => {
