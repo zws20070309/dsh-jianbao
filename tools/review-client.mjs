@@ -47,7 +47,7 @@ if (/^- insert:/mu.test(patch)) ok('使用 - insert: 新建行（不覆盖官方
 else bad('cordis.patch.yml 缺少 - insert:')
 if (patch.includes(pkg.name)) ok('patch 里的包名与 package.json 一致')
 else bad('patch 里的包名对不上：' + pkg.name)
-if (patch.includes('id: tuiwen')) ok('插件行 id 存在')
+if (patch.includes('id: jianbao')) ok('插件行 id 存在')
 else bad('插件行 id 缺失')
 
 console.log('')
@@ -75,14 +75,14 @@ else bad('顶层有绑定，会与官方 bundle 撞名：' + topLevel.join(' / '
 
 console.log('')
 console.log('[4] Remote 描述符')
-const methods = ['snapshot', 'env', 'saveForm', 'uploadImage', 'save', 'compile', 'log', 'pdf']
+const methods = ['snapshot', 'env', 'saveForm', 'uploadImage', 'save', 'compile', 'log', 'pdf', 'gate']
 let found = 0
 for (const name of methods) {
   const pattern = new RegExp("method: '" + name + "'", 'u')
   if (pattern.test(source)) { found += 1; ok('描述符：' + name) }
   else bad('缺少描述符：' + name)
 }
-if (found === methods.length) ok('8 个 Remote 方法全部登记')
+if (found === methods.length) ok(methods.length + ' 个 Remote 方法全部登记')
 if (source.includes('$mount(CONTRIBUTION)')) ok('apply 里真的调用了 remote.$mount')
 else bad('apply 没有挂载 Remote 描述符')
 
@@ -106,7 +106,7 @@ if (bundles.length === 0) {
   const parts = []
   for (const file of bundles) parts.push(await readFile(file, 'utf8'))
   parts.push(source)
-  const dir = await mkdtemp(join(tmpdir(), 'dsh-tuiwen-merge-'))
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-jianbao-merge-'))
   const file = join(dir, 'merged.js')
   await writeFile(file, parts.join('\n;\n'), 'utf8')
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })

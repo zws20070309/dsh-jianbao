@@ -1,9 +1,17 @@
 # 简报工作台 —— bundle patch（宿主平面）
 #
-# 只做一件事：把本包作为**一行新插件**插进 profile 的 cordis roster。
-# `- insert:` 是新建行，不覆盖任何已存在的行，与官方 bundle 层没有先后依赖。
+# 插两行，都属于本插件：
+#   · jianbao        —— 工作台宿主半（Remote 服务 + 三只工具 + 提示段 + 标签门控）
+#   · jianbao-preset —— 把「简报模式」注册进 agent-presets 注册表
 #
-# 没有这一行就没有 fiber，`dsh.client` 声明也就永远扫不到 —— 浏览器半（工作台）不会加载。
+# `- insert:` 是新建行，不覆盖任何已存在的行，与官方 bundle 层没有先后依赖。
+# 没有这两行就没有 fiber，`dsh.client` 声明也就永远扫不到 —— 浏览器半（工作台）不会加载。
 - insert:
-    - id: tuiwen
-      name: '@zws/dsh-tuiwen'
+    - id: jianbao
+      name: '@zws/dsh-jianbao'
+      inject: [tools, systemPrompt]
+      config:
+        presetId: jianbao
+
+    - id: jianbao-preset
+      name: '@zws/dsh-jianbao/preset'

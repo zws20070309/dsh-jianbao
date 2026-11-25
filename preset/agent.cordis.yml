@@ -1,0 +1,103 @@
+# 简报预设（jianbao）—— 由 PTC 派生，只保留写简报需要的工具面。
+#
+# 关键差异（相对官方 ptc）：
+#   1. persona.prefix 载入本目录 prompt.md —— 简报专岗提示词，**不注入 AGENTS.md**
+#      （agent-instructions 行被移除，所以 ~/.dsh/AGENTS.md 不会进来）；
+#   2. skill-filesystem 只扫本包随带技能目录，不扫用户技能根；
+#   3. tool-allow-guard 把工具面收窄到"读/写/编译/搜/图"几类，去掉 mcp/skill/blender/terminal；
+#   4. 挂 dsh-jianbao 的 gate 行：只有本预设的会话才允许注册「简报」工作台入口。
+#
+# 下面 persona.prefix 的占位符由 index.js 在注册前替换成 prompt.md 正文
+# （块标量缩进逐行补齐）。注意注释里不能出现那个占位符字面量 ——
+# indexOf 会命中第一处，替换就落到注释行上，YAML 直接废掉（已踩过）。
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: |-
+      {{PROMPT}}
+    includeRuntimeContext: false
+
+- id: time-context
+  name: '@deepseek-ai/dsh-time-context'
+
+# ── shell：写稿要跑 xelatex，两个平台都留 ──────────────────────────
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ────────────────────────────────────────────────────
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── PTC 运行时：run_code 是本预设唯一的直接工具入口 ────────────────
+# 包名是 dsh-tool-executor-ptc（不是 dsh-tool-ptc —— 后者不存在，写错会让整份预设 broken）
+- id: tool-executor-ptc
+  name: '@deepseek-ai/dsh-tool-executor-ptc'
+
+# ── skills：只扫本包随带的技能目录，不扫 ~/.dsh/skills 与项目级技能 ──
+# 简报预设用不到逆向/论文那套技能；关掉默认根避免把整个技能库吞进上下文。
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs:
+      - !!js new URL('./skills', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── 联网：查资料、核事实 ──────────────────────────────────────────
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+
+# ── 交互 ──────────────────────────────────────────────────────────
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: false
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'
+
+# ── 简报本体：三只工具 + 工作台门控 ───────────────────────────────
+- id: jianbao
+  name: '@zws/dsh-jianbao'
+  config:
+    presetId: jianbao
+
+# ── 压缩：长会话不挂这个会在上下文打满后直接失败 ──────────────────
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024

@@ -1,10 +1,13 @@
 /**
- * 渲染器自测：版式映射、转义、页数估算。不跑 LaTeX，纯字符串断言。
+ * 渲染器自测：版式映射、转义、页数估算、几何常量。
+ *
+ * 断言对象是「生成的 .tex 源」，不跑 LaTeX（真编译在 tools/selftest.mjs 与
+ * tools/geometry-diff.mjs 里做）。所以这里锁的是**实测常量有没有被写错**。
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { LAYOUT, UNITS } from '../lib/brief.js'
+import { LAYOUT, METRICS, UNITS } from '../lib/brief.js'
 import { FONT_CANDIDATES, linesPerPage, renderTex, texEscape, texPath } from '../lib/render-tex.js'
 
 const doc = {
@@ -25,44 +28,48 @@ const doc = {
   cc: ['校领导、院领导', '党委（校长）办公室、党委宣传部'],
 }
 
-test('页面几何：A4 + 3.7/3.5/2.8/2.6cm + 固定行距 28.8pt', () => {
+test('页面几何：A4 595.32×841.92bp + 左79.4/右73.7/上104.9/下99.25bp', () => {
   const tex = renderTex(doc)
-  assert.match(tex, /\\documentclass\[UTF8,fontset=none,a4paper\]\{ctexart\}/u)
-  assert.match(tex, /top=3\.7cm,bottom=3\.5cm,left=2\.8cm,right=2\.6cm/u)
-  assert.match(tex, /\\fontsize\{16pt\}\{28\.8pt\}\\selectfont/u)
+  assert.match(tex, /\\documentclass\[UTF8,fontset=none\]\{ctexart\}/u)
+  assert.match(tex, /paperwidth=595\.32bp,paperheight=841\.92bp/u)
+  assert.match(tex, /left=79\.4bp,right=73\.7bp,top=104\.9bp,bottom=99\.25bp/u)
+  assert.match(tex, /\\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont/u)
   assert.match(tex, /\\setlength\{\\parindent\}\{0pt\}/u)
 })
 
-test('三号正文与二、一、三级标题的字号/字体宏都用上', () => {
+test('字号全部按实测 bp 写：正文 15.96 / 标题 21.96 / 一级 19.93 / 抄送 15', () => {
   const tex = renderTex(doc)
-  // 大标题 22pt
-  assert.match(tex, /\{\\FZTitle\\fontsize\{22pt\}\{28\.8pt\}\\selectfont/u)
-  // 一级标题 20pt（方正黑体）
-  assert.match(tex, /\{\\FZHOne\\fontsize\{20pt\}\{28\.8pt\}\\selectfont 一、赛前准备\}/u)
-  // 二级标题 16pt 加粗（方正楷体）
-  assert.match(tex, /\\FZHTwo\\bfseries \\fontsize\{16pt\}\{28\.8pt\}\\selectfont （一）赛制安排/u)
-  // 三级标题 16pt 加粗（方正仿宋）
-  assert.match(tex, /\\FZHThree\\bfseries \\fontsize\{16pt\}\{28\.8pt\}\\selectfont 1\. 报名情况/u)
+  assert.match(tex, /\{\\FZTitle\\fontsize\{21\.96bp\}\{28\.92bp\}\\selectfont/u)
+  assert.match(tex, /\{\\FZHOne\\fontsize\{19\.93bp\}\{28\.8bp\}\\selectfont 一、赛前准备\}/u)
+  assert.match(tex, /\{\\FZHTwo\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont （一）赛制安排\}/u)
+  assert.match(tex, /\{\\FZHThree\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont 1\. 报名情况\}/u)
+  assert.match(tex, /\{\\FZCc\\fontsize\{15bp\}\{28\.8bp\}\\selectfont/u)
 })
 
-test('首行缩进 2 字符：正文段前有 2em', () => {
+test('正文段不缩进（与参考 PDF 一致：正文左边界 = 报头左边界 = 79.4）', () => {
   const tex = renderTex(doc)
-  assert.match(tex, /\\par\\noindent\\hspace\*\{2em\}为了深入贯彻落实/u)
+  assert.equal(/\\hspace\*\{2em\}/u.test(tex), false)
+  assert.match(tex, /\\noindent 为了深入贯彻落实/u)
 })
 
-test('抄送区：两条通栏横线 + 压到末页底部（\\vfill）', () => {
+test('抄送区：两条通栏线 + \\vfill 压末页底，缩进 14.8 / 59.2bp', () => {
   const tex = renderTex(doc)
-  assert.match(tex, /\\vfill/u)
-  assert.equal((tex.match(/\\rule\{\\textwidth\}\{0\.5pt\}/gu) || []).length, 2)
-  assert.match(tex, /抄送：校领导、院领导/u)
-  assert.match(tex, /党委（校长）办公室、党委宣传部/u)
+  assert.match(tex, /\\par\\vfill\\nointerlineskip/u)
+  assert.equal((tex.match(/\\rule\{\\linewidth\}\{1bp\}/gu) || []).length, 2)
+  assert.match(tex, /\\noindent\\hspace\*\{14\.8bp\}抄送：校领导、院领导/u)
+  assert.match(tex, /\\noindent\\hspace\*\{59\.2bp\}党委（校长）办公室、党委宣传部/u)
 })
 
-test('页脚「— N —」：14pt 右对齐，可关闭', () => {
+test('页脚：eso-pic 绝对定位到基线 752.856 / 右端 506.01', () => {
   const tex = renderTex(doc)
-  assert.match(tex, /\\fancyfoot\[R\]\{\\fontsize\{14pt\}\{14pt\}\\selectfont \\textemdash\\;\\thepage\\;\\textemdash\}/u)
+  assert.match(tex, /\\AddToShipoutPictureFG/u)
+  const expectedX = Math.round((METRICS.pageW - METRICS.marginRight - METRICS.footerRightIndent) * 1000) / 1000
+  const expectedY = Math.round((METRICS.pageH - METRICS.footerBaseline) * 1000) / 1000
+  assert.match(tex, new RegExp('\\\\put\\(\\\\LenToUnit\\{' + expectedX + 'bp\\},\\\\LenToUnit\\{' + expectedY + 'bp\\}\\)', 'u'))
+  // 数字段用定宽盒锁成 pageNumBox（参考「 1 」实测 17.55）
+  assert.match(tex, /\\makebox\[17\.55bp\]\[c\]\{\\fontspec\{Times New Roman\}/u)
   const noPage = renderTex({ ...doc, withPageNumber: false })
-  assert.match(noPage, /\\fancyfoot\{\}/u)
+  assert.equal(/AddToShipoutPictureFG/u.test(noPage), false)
 })
 
 test('字体回落：没给字体时走候选表最后一项（系统字体），不会留空宏', () => {
@@ -76,7 +83,15 @@ test('字体回落：没给字体时走候选表最后一项（系统字体）�
 
 test('字体回落：显式给方正字体名时只写名字，让系统按名查找', () => {
   const tex = renderTex(doc, { fonts: { body: { name: '方正仿宋_GBK', file: '' } } })
-  assert.match(tex, /\\newCJKfontfamily\\FZBody\[BoldFont=方正仿宋_GBK\]\{方正仿宋_GBK\}/u)
+  assert.match(tex, /\\newCJKfontfamily\\FZBody\[\]\{方正仿宋_GBK\}/u)
+})
+
+test('用户字体目录：@LOCAL/ 前缀解析到 localFontDir', () => {
+  const tex = renderTex(doc, {
+    localFontDir: 'C:/Users/USER/AppData/Local/Microsoft/Windows/Fonts',
+    fonts: { cc: { name: '仿宋_GB2312', file: '@LOCAL/仿宋_GB2312.ttf' } },
+  })
+  assert.match(tex, /\\newCJKfontfamily\\FZCc\[Path=C:\/Users\/ZWS\/AppData\/Local\/Microsoft\/Windows\/Fonts\//u)
 })
 
 test('伪粗体：二/三级标题在系统字体上也要真的变粗', () => {
@@ -89,6 +104,12 @@ test('转义：LaTeX 特殊字符不会炸', () => {
   assert.equal(texEscape('50% & $5 #1_2'), '50\\% \\& \\$5 \\#1\\_2')
   assert.equal(texEscape('a\\b'), 'a\\textbackslash{}b')
   assert.equal(texPath('assets\\fig 1.png'), 'assets/fig 1.png')
+})
+
+test('期号行里的 \\hspace 不会被转义成文字', () => {
+  const tex = renderTex(doc)
+  assert.match(tex, /2026年\\hspace\*\{7\.8bp\}第12期/u)
+  assert.equal(/textbackslash\{\}hspace/u.test(tex), false)
 })
 
 test('插图：大图独占 / 成对并排，受最大宽高约束', () => {
@@ -110,13 +131,12 @@ test('成对插图：两张图并排 + 图注各挂图下（tabular 对齐）', 
     ...doc,
     blocks: [{ type: 'imagePair', srcs: ['assets/a.png', 'assets/b.png'], captions: ['现场讲解', '分组实验'] }],
   })
-  // 两张图在同一行（用 & 分隔），且整块包在等宽 tabular 里
-  assert.match(tex, /\\begin\{tabular\}.*\n.*includegraphics.*&.*includegraphics/u)
+  assert.match(tex, /\\begin\{tabular\}[\s\S]*includegraphics[\s\S]*&[\s\S]*includegraphics/u)
   assert.match(tex, /现场讲解\} & \{\\FZCc/u)
   assert.match(tex, /分组实验/u)
 })
 
-test('成对插图：没有图注时不生成 tabular（保持原来的单行并排）', () => {
+test('成对插图：没有图注时不生成 tabular', () => {
   const tex = renderTex({
     ...doc,
     blocks: [{ type: 'imagePair', srcs: ['assets/a.png', 'assets/b.png'] }],
@@ -125,8 +145,34 @@ test('成对插图：没有图注时不生成 tabular（保持原来的单行并
   assert.match(tex, /\\includegraphics.*\\hspace\{0\.4cm\}\\includegraphics/u)
 })
 
-test('每页行数：正文区高度 ÷ 28.8pt', () => {
-  const expected = Math.floor((29.7 - 3.7 - 3.5) / UNITS.ptToCm(28.8))
+test('每页行数：版心高 ÷ 28.8bp = 22 行', () => {
+  const expected = Math.floor((METRICS.pageH - METRICS.marginTop - METRICS.marginBottom) / METRICS.linePt)
   assert.equal(linesPerPage(), expected)
   assert.equal(linesPerPage(), 22)
+})
+
+test('几何常量与参考 PDF 一致（防止有人改坏 METRICS）', () => {
+  assert.equal(METRICS.pageW, 595.32)
+  assert.equal(METRICS.pageH, 841.92)
+  assert.equal(METRICS.marginLeft, 79.4)
+  assert.equal(METRICS.marginRight, 73.7)
+  assert.equal(METRICS.marginTop, 104.9)
+  assert.equal(METRICS.marginBottom, 99.25)
+  assert.equal(METRICS.linePt, 28.8)
+  assert.equal(METRICS.bodyPt, 15.96)
+  assert.equal(METRICS.titlePt, 21.96)
+  assert.equal(METRICS.h1Pt, 19.93)
+  assert.equal(METRICS.ccPt, 15)
+  assert.equal(METRICS.pagePt, 14.04)
+  assert.equal(METRICS.issueBaseline, 252.38)
+  assert.equal(METRICS.masthead1, 277.49)
+  assert.equal(METRICS.masthead2, 306.29)
+  assert.equal(METRICS.title1, 367.73)
+  assert.equal(METRICS.body1, 454.39)
+  assert.equal(METRICS.page2Baseline, 127.94)
+  assert.equal(METRICS.rule1Y, 687.25)
+  assert.equal(METRICS.rule2Y, 740.55)
+  assert.equal(METRICS.ccBaseline1, 705.02)
+  assert.equal(METRICS.ccBaseline2, 733.82)
+  assert.equal(METRICS.footerBaseline, 752.856)
 })

@@ -1,0 +1,19 @@
+{
+  "name": "@zws/dsh-jianbao-preset",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "简报 Agent 预设：基于 PTC 工具面，只写简报（LaTeX→PDF），不注入 AGENTS.md；本预设下才出现「简报」工作台入口。",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./gate": "./gate.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

@@ -136,6 +136,22 @@ Write-Host ("client.js visible     : " + (Test-Path -LiteralPath (Join-Path $nmJ
 
 if ($hasDep -and $hasBundle) {
     Write-Host ""
+    Write-Host "MANUAL STEP (required): add these two rows to the profile patch"
+    Write-Host "  $profileDir\cordis.patch.yml"
+    Write-Host ""
+    Write-Host "  - id: jianbao"
+    Write-Host "    name: '@zws/dsh-jianbao'"
+    Write-Host "    inject: [tools, systemPrompt]"
+    Write-Host "    config:"
+    Write-Host "      presetId: jianbao"
+    Write-Host "  - insert:"
+    Write-Host "      - id: jianbao-preset"
+    Write-Host "        name: '@zws/dsh-jianbao/preset'"
+    Write-Host ""
+    Write-Host "The first row mounts the workspace host half; the second declares the"
+    Write-Host "jianbao agent preset. Without them there is no fiber, so the browser half"
+    Write-Host "is never scanned and the tab never appears."
+    Write-Host ""
     Write-Host "INSTALL OK - fully quit and restart DSH for this to take effect (no HMR)."
 } else {
     Write-Host ""

@@ -1,5 +1,5 @@
 {
-  "name": "@zws/dsh-tuiwen",
+  "name": "@zws/dsh-jianbao",
   "version": "1.0.0",
   "description": "简报工作台：DSH 里填基本信息 → 模型按版式规范写简报 → XeLaTeX 编译出 PDF。纸张 A4、页边距 3.7/3.5/2.8/2.6cm、行距固定 28.8 磅、正文 3 号方正仿宋、一/二/三级标题按规范，抄送区压末页底部、页脚「— N —」。没有 LaTeX 时降级为只出 .tex。",
   "type": "module",
@@ -11,19 +11,22 @@
     "./brief": "./lib/brief.js",
     "./render-tex": "./lib/render-tex.js",
     "./env": "./lib/env.js",
+    "./gate": "./lib/gate.js",
+    "./preset": "./preset/index.js",
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zws20070309/dsh-tuiwen.git"
+    "url": "git+https://github.com/zws20070309/dsh-jianbao.git"
   },
   "bugs": {
-    "url": "https://github.com/zws20070309/dsh-tuiwen/issues"
+    "url": "https://github.com/zws20070309/dsh-jianbao/issues"
   },
-  "homepage": "https://github.com/zws20070309/dsh-tuiwen#readme",
+  "homepage": "https://github.com/zws20070309/dsh-jianbao#readme",
   "files": [
     "lib",
+    "preset",
     "locale",
     "cordis.patch.yml",
     "icon.svg",

@@ -1,112 +1,183 @@
 #!/usr/bin/env node
 /**
- * 端到端自检：不需要 DSH，直接调宿主半的 apply()。
+ * 端到端自测：不启动 DSH，用真实的宿主半代码走完整链路。
  *
- * 做四件事：
- *   1. 在系统临时目录建一个工作区；
- *   2. 用假 ctx 注册插件（真实 tools.register / systemPrompt.section）；
- *   3. 调 tuiwen_save 真写 .tex、真跑 xelatex（本机有 LaTeX 时出 PDF）；
- *   4. 校验产物、打印结论，退出码反映结果。
+ *   1. 用本包自带的 XeLaTeX 渲染器写出 .tex；
+ *   2. 真调 xelatex 编译出 PDF；
+ *   3. 从**产出的 PDF** 里读回 span 级基线，逐项断言它等于 lib/brief.js 的 METRICS。
  *
- * 用法： node tools/selftest.mjs   （可选 --keep 保留临时目录）
+ * 为什么第 3 步不是"和参考 PDF 比"：
+ *   参考样本（74 号）第 1 页有图，Word 的图片绕排把正文挤到右侧、还把一行切成
+ *   两段 span。拿它做逐行几何比对，我们的**无图**产物必然大量 MISS —— 那是
+ *   比较对象不同（有没有图），不是版式错。所以这里断言的是"我们自己产出的
+ *   PDF 有没有落在实测标定的坐标上"，参考 PDF 的比对留给
+ *   tools/geometry-diff.mjs 做人工验收（它输出逐行偏差表）。
+ *
+ * 用法：
+ *   node tools/selftest.mjs
+ *
+ * 退出码：0 = 全部命中；1 = 有偏差或编译失败；2 = 环境缺件。
  */
-
+import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-import * as plugin from '../lib/index.js'
+import { METRICS } from '../lib/brief.js'
+import { renderTex } from '../lib/render-tex.js'
+import { detectEnvironment } from '../lib/env.js'
+import { compileTex } from '../lib/compile.js'
 
-const keep = process.argv.includes('--keep')
-const workspace = join(tmpdir(), 'dsh-tuiwen-selftest-' + process.pid)
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+let failed = 0
+const say = (line) => console.log(line)
+const fail = (line) => { failed += 1; console.error('FAIL ' + line) }
 
-const fail = []
-const ok = (label) => console.log('  OK   ' + label)
-const bad = (label) => { fail.push(label); console.log('  FAIL ' + label) }
-
-console.log('workspace: ' + workspace)
-await mkdir(workspace, { recursive: true })
-
-const tools = new Map()
-const provided = new Map()
-const sections = []
-const ctx = {
-  tools: { register: (def) => { tools.set(def.name, def); return () => {} } },
-  systemPrompt: { section: (s) => { sections.push(s); return () => {} } },
-  effect: (fn) => { fn(); return () => {} },
-  provide: (key, svc) => { provided.set(key, svc) },
-  get: (key) => (key === 'sessions' ? { get: () => ({ header: { cwd: workspace, id: 'selftest' } }) } : undefined),
+// 与参考样本一字不差的正文：只有文本相同，断行位置才可比。
+const DOC = {
+  title: '西藏大学理学院召开2026级新生见面会暨入学教育动员大会',
+  issue: '第74期',
+  year: '2026',
+  org: '西藏大学理学院',
+  author: '冯某某',
+  auditor: '李某某',
+  phone: '13800000002',
+  cc: ['校领导、院领导', '党委（校长）办公室、党委宣传部'],
+  blocks: [
+    { type: 'p', text: '为给师生搭建沟通交流平台，帮助新生认识学院管理服务团队，消除初入校园的陌生感，引导新生尽快适应高原校园环境，做好大学阶段的学习生活规划。8月29日，西藏大学理学院于图书馆二楼学术报告厅举行2026级新生见面会暨入学教育动员大会。会议由学院党委副书记、纪委书记张某某同志主持，学院领导班子、各系科中心、职能科室管理团队及全体2026级新生参会。' },
+    { type: 'p', text: '大会在庄严的国歌声中拉开序幕。理学院党委副书记、院长刘某某致欢迎辞，对新同学奔赴雪域求学表示热烈欢迎。他介绍学院办学条件与师资科研平台，结合藏大精神，勉励新生厚植家国情怀，传承高原精神；笃学求真，夯实理学专业基础；友善包容，共建温暖集体；严守纪律，筑牢安全防线。同时表示学院全体教职工将全力做好学生成长后盾。' },
+    { type: 'p', text: '随后，主持人逐一介绍学院领导、各科室及系科中心负责人，帮助新生熟悉管理服务队伍，消除入校陌生感。学生科科长陈某某作入学教育动员，阐明入学教育对适应高原校园生活的重要意义，引导同学们感悟藏大精神，树立“扎根雪域、服务地方”的理想信念，尽快完成角色转变。' },
+    { type: 'p', text: '本次大会搭建起师生沟通桥梁，帮助新生了解学院、明晰大学学习生活要求，激励同学们立足高原，勤学奋进，开启理学院青春奋斗新征程。' },
+  ],
 }
 
-console.log('\n[1] apply()')
-plugin.apply(ctx)
-if (tools.size === 3) ok('三只工具注册成功：' + [...tools.keys()].join(', '))
-else bad('工具数量不对：' + tools.size)
-if (provided.get('tuiwen') !== undefined) ok('Remote 服务 tuiwen 已提供')
-else bad('Remote 服务缺失')
-if (sections.length === 1 && /28\.8/u.test(sections[0].text())) ok('系统提示段已注册（含 28.8 磅行距规范）')
-else bad('系统提示段缺失或内容不对')
+say('jianbao selftest')
+say('  root: ' + root)
 
-const exec = { agent: { session: { header: { cwd: workspace, id: 'selftest' } } } }
+const env = await detectEnvironment()
+say('  xelatex: ' + (env.latex.xelatex || '(not found)'))
+if (env.latex.canCompilePdf !== true) {
+  say('SKIP 本机没有可用的 XeLaTeX：无法做像素级验收')
+  process.exit(2)
+}
+const missing = ['fangsong', 'heiti', 'kaiti', 'songti'].filter((role) => !(env.fonts.roles?.[role]?.file))
+say('  fonts: ' + (missing.length === 0 ? '方正/系统字体齐备' : '缺 ' + missing.join('、')))
 
-console.log('\n[2] tuiwen_save（写稿 + 编译）')
-const blocks = [
-  { type: 'p', text: '为了深入贯彻落实立德树人根本任务、引导学生科学规划大学生涯，4月27日14:00，理学院举办第三届心理健康知识竞赛，院党委副书记、纪委书记张某某同志出席本次竞赛，2026级全体学生参加。' },
-  { type: 'h1', text: '一、赛前准备' },
-  { type: 'p', text: '竞赛启动以来，学院精心组织、周密部署，围绕心理健康知识普及设置初赛环节，各班积极响应、认真备赛，为决赛打下扎实基础。' },
-  { type: 'h2', text: '（一）赛制安排' },
-  { type: 'p', text: '决赛设置必答题、抢答题和情景分析三个环节，参赛选手沉着应对、从容作答，充分展现了扎实的知识储备和昂扬向上的精神面貌。' },
-  { type: 'p', text: '经过多轮激烈角逐，竞赛评选出表现突出的个人与班集体。张某某同志为获奖同学颁奖并作总结讲话，勉励同学们以阳光心态面对成长中的挑战。此次竞赛内容丰富、针对性强，有效普及了心理健康知识，推动各民族交往交流交融走深走实。' },
-]
-const saved = await tools.get('tuiwen_save').execute({
-  brief: { issue: '第12期', author: '孙某某', auditor: '张某某', phone: '13800000000', briefType: 'contest', topic: '第三届心理健康知识竞赛', blocks },
-  compile: true,
-}, exec)
-if (existsSync(saved.tex)) ok('.tex 已生成：' + saved.tex)
-else bad('.tex 没生成')
-if (saved.chars > 200) ok('字数统计：' + saved.chars)
-else bad('字数统计异常：' + saved.chars)
-if (saved.warnings.length > 0) console.log('  提醒  ' + saved.warnings.join('；'))
-const tex = await readFile(saved.tex, 'utf8')
-const checks = [
-  ['A4 纸张', /a4paper/u],
-  ['页边距 3.7/3.5/2.8/2.6', /top=3\.7cm,bottom=3\.5cm,left=2\.8cm,right=2\.6cm/u],
-  ['固定行距 28.8pt', /\{28\.8pt\}/u],
-  ['大标题 22pt', /\{22pt\}/u],
-  ['一级标题 20pt', /\{20pt\}/u],
-  ['首行缩进 2 字符', /\\hspace\*\{2em\}/u],
-  ['抄送两条横线', /\\rule\{\\textwidth\}/u],
-  ['页脚页码', /\\textemdash/u],
-]
-for (const [label, pattern] of checks) {
-  if (pattern.test(tex)) ok('版式：' + label)
-  else bad('版式缺失：' + label)
+const work = join(root, '_selftest')
+await rm(work, { recursive: true, force: true })
+await mkdir(work, { recursive: true })
+
+// 1) 出 .tex（用渲染器自己的字体候选链 —— 与参考样本同一套）
+const tex = renderTex(DOC, {
+  fontDir: env.fonts?.dirs?.[0] ?? 'C:/Windows/Fonts',
+  localFontDir: env.fonts?.dirs?.[1] ?? 'C:/Windows/Fonts',
+})
+const texFile = join(work, 'brief.tex')
+await writeFile(texFile, tex, 'utf8')
+say('  tex: ' + texFile + ' (' + tex.length + ' bytes)')
+if (!tex.includes('paperwidth=595.32bp')) fail('.tex 里没有实测页面尺寸')
+
+// 2) 编译
+const out = await compileTex({ xelatex: env.latex.xelatex, workDir: work, jobName: 'brief' })
+if (out.ok !== true) {
+  fail('xelatex 编译失败：' + (out.logTail || out.log || '').slice(-1200))
+  say('SELFTEST FAIL')
+  process.exit(1)
 }
 
-console.log('\n[3] 编译结果')
-if (saved.ok) {
-  if (existsSync(saved.pdf)) ok('PDF 已生成：' + saved.pdf + '（' + saved.pages + ' 页）')
-  else bad('声称成功但没有 PDF')
-} else {
-  console.log('  跳过  本机没有可用的 LaTeX：' + saved.error)
-  console.log('        这属于预期降级（只出 .tex），不算失败。')
+// 3) 从产出的 PDF 读回几何，与 METRICS 对账
+const probe = join(work, 'probe.py')
+await writeFile(probe, [
+  'import pymupdf, json, sys',
+  'sys.stdout.reconfigure(encoding="utf-8")',
+  'd = pymupdf.open(sys.argv[1])',
+  'rows = []',
+  'for pno in range(d.page_count):',
+  '    for b in d[pno].get_text("rawdict")["blocks"]:',
+  '        if b["type"] != 0: continue',
+  '        for ln in b["lines"]:',
+  '            t = "".join(c["c"] for sp in ln["spans"] for c in sp["chars"]).strip()',
+  '            if not t: continue',
+  '            rows.append({"page": pno + 1, "y": round(ln["spans"][0]["origin"][1], 3),',
+  '                         "x0": round(ln["bbox"][0], 2), "x1": round(ln["bbox"][2], 2),',
+  '                         "size": round(ln["spans"][0]["size"], 2), "text": t})',
+  'pages = d.page_count',
+  'w, h = d[0].rect.width, d[0].rect.height',
+  'print(json.dumps({"pages": pages, "w": round(w, 2), "h": round(h, 2), "rows": rows}, ensure_ascii=False))',
+].join('\n'), 'utf8')
+
+const run = spawnSync('python', [probe, out.pdf], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+if (run.status !== 0) {
+  fail('读 PDF 几何失败（需要 python + PyMuPDF）：' + String(run.stderr || '').slice(0, 400))
+  say('SELFTEST FAIL')
+  process.exit(1)
+}
+const geo = JSON.parse(run.stdout)
+say('  pdf: ' + out.pdf + ' (' + geo.pages + ' pages, ' + geo.w + '×' + geo.h + ')')
+
+const near = (a, b, tol) => Math.abs(a - b) <= tol
+const check = (label, actual, expected, tol = 0.6) => {
+  if (near(actual, expected, tol)) say('  OK   ' + label + ' = ' + actual + '（期望 ' + expected + '）')
+  else fail(label + ' = ' + actual + '，期望 ' + expected + '（容差 ' + tol + '）')
 }
 
-console.log('\n[4] 状态读回')
-const snap = await tools.get('tuiwen_state').execute({}, exec)
-if (snap.hasBrief === true && snap.brief.blocks.length === blocks.length) ok('简报数据可读回（' + snap.brief.blocks.length + ' 块）')
-else bad('简报数据读回异常')
-if (snap.env.latex.canCompilePdf === true) ok('环境探测：可编译 PDF（' + snap.env.latex.xelatex + '）')
-else console.log('  环境  不可编译 PDF：' + snap.env.latex.error)
+check('页面宽', geo.w, METRICS.pageW, 0.05)
+check('页面高', geo.h, METRICS.pageH, 0.05)
 
-if (!keep) await rm(workspace, { recursive: true, force: true })
+const page1 = geo.rows.filter((row) => row.page === 1)
+const find = (prefix) => page1.find((row) => row.text.startsWith(prefix))
 
-console.log('')
-if (fail.length === 0) {
-  console.log('SELFTEST PASS')
-  process.exit(0)
+const issue = find('2026年') || find('2026 年')
+if (issue === undefined) fail('首页找不到期号行')
+else check('期号基线', issue.y, METRICS.issueBaseline)
+
+const mast = find('西藏大学理学院') 
+if (mast === undefined) fail('首页找不到报头第一行')
+else check('报头一基线', mast.y, METRICS.masthead1)
+
+const audit = find('审签人')
+if (audit === undefined) fail('首页找不到报头第二行')
+else check('报头二基线', audit.y, METRICS.masthead2)
+
+const title = find('西藏大学理学院召开')
+if (title === undefined) fail('首页找不到大标题')
+else {
+  check('大标题首行基线', title.y, METRICS.title1)
+  check('大标题左边距', title.x0, METRICS.marginLeft, 0.5)
 }
-console.log('SELFTEST FAIL: ' + fail.length + ' 项')
-for (const item of fail) console.log('  - ' + item)
-process.exit(1)
+
+const body1 = find('为给师生')
+if (body1 === undefined) fail('首页找不到正文首行')
+else {
+  check('正文首行基线', body1.y, METRICS.body1)
+  check('正文左边距（不缩进）', body1.x0, METRICS.marginLeft, 0.5)
+}
+
+const page2 = geo.rows.filter((row) => row.page === 2)
+if (page2.length === 0) fail('只有 1 页，参考是 2 页以上（正文被截断？）')
+else check('第 2 页首行基线', page2[0].y, METRICS.page2Baseline)
+
+const footer = geo.rows.find((row) => /^—\s*\d+\s*—$/u.test(row.text))
+if (footer === undefined) fail('找不到页脚页码')
+else {
+  check('页脚基线', footer.y, METRICS.footerBaseline)
+  check('页脚右端', footer.x1, 506.01, 0.5)
+  check('页脚字号', footer.size, METRICS.pagePt, 0.05)
+}
+
+const cc1 = geo.rows.find((row) => row.text.startsWith('抄送'))
+if (cc1 === undefined) fail('找不到抄送首行')
+else check('抄送首行基线', cc1.y, METRICS.ccBaseline1)
+
+const cc2 = geo.rows.find((row) => row.text.startsWith('党委（校长）办公室'))
+if (cc2 === undefined) fail('找不到抄送次行')
+else check('抄送次行基线', cc2.y, METRICS.ccBaseline2)
+
+say('')
+if (failed > 0) {
+  say('SELFTEST FAIL（' + failed + ' 项偏差）')
+  process.exit(1)
+}
+say('SELFTEST PASS')
+say('  产出 PDF 的页面尺寸、首页各块基线、正文左边距、页脚、抄送区全部落在实测坐标上')

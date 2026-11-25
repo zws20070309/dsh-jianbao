@@ -1,5 +1,6 @@
 node_modules/
-.tuiwen/
+.jianbao/
+_selftest/
 *.log
 *.aux
 *.out
