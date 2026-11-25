@@ -1,208 +1,124 @@
-# 两个真机 Bug 的复盘
+# 「加载失败」四层根因复盘
 
-这两个 bug 有同一个特征：**61 项单测全绿，但 DSH 里预设显示「加载失败」**。
-根因不在业务逻辑，而在「交给运行时的东西格式对不对」——而我的测试当时只验内容，
-没验「运行时能不能吃下去」。
+预设卡片显示「加载失败」四个字，前前后后查出**四个独立原因**，每一层单独存在都足以让挂载失败。
+这一篇按发现顺序记录，重点是每层的**证据**与**为什么之前没查出来**。
 
-## Bug 1：`!!js` 里不能用 `import.meta`
+## 总览
 
-### 现象
+| # | 根因 | 触发点 | 前面为什么漏掉 |
+|---|---|---|---|
+| 1 | `!!js` 里写 `import.meta` | `new Function` 求值时语法错误 | 单测不跑 cordis 求值器 |
+| 2 | 补丁写成裸 `- id:` | applyEntryPatches 当作「覆盖」并静默跳过 | 没人检查补丁形状 |
+| 3 | bundle 层与 profile 层重复插入 | 插件被挂两次 | 没跑真实 loadProfile |
+| 4 | **注册方式错了 + 预设里 provide 服务** | 后面详述 | 测试用 mock loader，假绿 |
 
-重启 DSH 后，预设卡片红标「加载失败」，`broken` 有值但 UI 只显示四个字。
+前三条是外围问题。**第四条才是真正的病根**，而且它分成两个互斥的死结。
 
-### 定位
+## 第四层 A：注册方式 —— 声明式行 vs 代码 register
 
-cordis 求值 YAML 里的 `!!js` 表达式用的是（`cordis-plugin-loader/lib/index.js`）：
-
-```js
-const evaluate = new Function('ctx', 'expr', `
-  with (ctx) {
-    return eval(expr)
-  }
-`)
-```
-
-`new Function` 造出来的函数**不是模块**，所以 `import.meta` 在那里是**语法错误**。
-我写的这一行：
+官方 ptc / standard / minimal 全是**一条 Loader 行**：
 
 ```yaml
-- !!js new URL('./skills', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+- id: preset-ptc
+  name: '@deepseek-ai/dsh-agent-preset'
+  config:
+    id: ptc
+    plugins: [...]
 ```
 
-真求值的结果：
+`AgentPreset` 声明了 `static [EntryGroup.key] = true`（`dsh-agent-preset/lib/index.js`），
+所以 Loader 会把 `config.plugins` 挂成**真正的子行**，与声明行同平面解析。
 
-```
-THROW 旧写法（import.meta） => SyntaxError: Cannot use 'import.meta' outside a module
-OK    新写法（dshHomePath） => C:/Users/USER/.dsh/jianbao/skills
-```
-
-这个 SyntaxError 被 `AgentPresetRegistry.activate()` 捕获，写进 `record.broken`：
+我原先是在代码里 `ctx.agentPresets.register(def)`。那条路径下，registry 用它**自己**
+所在 Loader 的 baseUrl 解析子行裸包名：
 
 ```js
-catch (error) {
-  record.broken = error.message
-  this.owner.logger.warn(`agent preset ${record.config.id}: ${record.broken}`)
-  await scope.dispose()
+// dsh-agent-preset-registry/lib/index.js:534
+mountPreset(scope.ctx.extend({ baseUrl: record.context.baseUrl }), ...)
+```
+
+桌面版 DSH 是 Electron，模块全在 `resources/app.asar/dsh/node_modules` 内；
+`@zws/dsh-jianbao` 只存在于 profile 平面 → 解析不到 → 该行 never started → broken。
+
+## 第四层 B：预设里不能 provide 服务（两个死结）
+
+改声明式之后仍挂不上。原因是 `lib/index.js` 的 `apply()` 里有
+`ctx.provide('jianbao', service)` 发布工作台 Remote 服务。
+
+### 死结一：不 isolate → 判「泄漏到根 realm」
+
+```js
+// cordis/lib/index.js:805
+this.ctx.root[symbols.isolate][name] ??= Symbol(name)
+
+// dsh-agent-preset-registry/lib/index.js（mountPreset 收尾）
+const leaked = leakedServices(ctx, ctx.fiber)
+if (leaked.length > 0) throw new Error(`Preset services require isolate realms: ${leaked}`)
+```
+
+官方 `compaction` / `planning` / `delegation` 这些 provides 的行因此都带 `isolate`。
+
+### 死结二：加 isolate → 网关发现不了 Remote
+
+```js
+// dsh-api-gateway/lib/index.js collectSrcClaims()
+for (const [serviceKey, definition] of Object.entries(this.ctx.reflect.props)) {
+  const receiver = this.ctx.get(serviceKey)   // ← 从网关自己的 ctx 取
+  ...
 }
 ```
 
-于是整份预设作废 —— 连 persona.prefix 里的提示词、工具行、门控全都没挂上。
+服务被隔离进预设子 scope 后，网关的 ctx 取不到它。
 
-### 修法
+### 实测（Electron + 真 cordis）
 
-随包技能改成先**落到固定路径**，YAML 用宿主提供的 `dshHomePath` 指过去
-（与逆向预设 `dshHomePath('redteam/skills')` 同一套做法）：
-
-```yaml
-customSkillDirs:
-  - !!js dshHomePath('jianbao/skills')
+```
+不 isolate → root.get('svcA') === true,  rootIsolate.svcA 存在   → 判泄漏
+isolate    → root.get('svcB') === false                         → 网关发现不了
 ```
 
-`preset/index.js` 新增 `syncBundledSkills()`，在 `apply()` 启动时把
-`preset/skills/*.md` 幂等同步到 `$DSH_HOME/jianbao/skills`。
+两条路都不通。**官方所有 preset 的插件行都只注册工具、不 provide 服务**——这就是原因。
 
-### 可用于 `!!js` 的作用域
+## 修法：拆成两个入口
 
-只有 `ctx` 上的属性（`with (ctx)` 决定的）。实测可用：
-
-- `process`（平台判定）
-- `dshHomePath('...')`（DSH_HOME 下的路径）
-- `baseUrl`（声明方 Loader 的基准）
-
-**不可用**：`import.meta`、`require`、`__dirname`、任何 ESM 语法。
-
-## Bug 2：补丁不带 `insert` 就是「覆盖」，目标不存在则静默跳过
-
-### 现象
-
-预设能看到了（说明 preset 行生效），但「简报」标签始终不出现 —— 工作台宿主半没加载。
-
-### 定位
-
-`dsh-app-boot` 的 `applyEntryPatches`（`lib/index.js:61-110`）：
-
-```js
-for (const patch of patches) {
-  const { id, insert, name, ...overrides } = patch
-  if (insert) {
-    if (id) { /* 插进指定 group */ }
-    else data.push(...insert)      // ← 追加新行
-    continue
-  }
-  if (!id) { warn('patch: id is required'); continue }
-  const target = entryMap.get(id)
-  if (!target) {
-    warn('patch: entry %C not found')   // ← 只 warn 一句
-    continue                            // ← 然后跳过
-  }
-  for (const [key, value] of Object.entries(overrides)) {
-    if (key === 'id') continue
-    target[key] = value                 // ← 覆盖已有行
-  }
-}
 ```
-
-我把第一个插件行写成了裸的 `- id: jianbao`：它不是 insert，所以走「覆盖」分支，
-而这是**新建行**、entryMap 里没有，于是 `warn` 一句就丢掉了。
-
-所以真正生效的只有 `- insert: [{ id: jianbao-preset, ... }]` 那一行。
-
-### 修法
-
-整块写在 `- insert:` 里：
+lib/index.js   apply()             → provide Remote 服务 + 常驻提示段（顶层行，不在预设里）
+               createToolRegistrar → 造「注册三只工具」的函数
+lib/tools.js   apply()             → 只调 createToolRegistrar，不 provide
+```
 
 ```yaml
 - insert:
-    - id: jianbao
+    - id: jianbao                  # 顶层：服务 + 提示段
       name: '@zws/dsh-jianbao'
-      inject: [tools, systemPrompt]
+
+    - id: preset-jianbao           # 预设声明
+      name: '@deepseek-ai/dsh-agent-preset'
       config:
-        presetId: jianbao
-    - id: jianbao-preset
-      name: '@zws/dsh-jianbao/preset'
+        plugins:
+          - id: jianbao            # 内层：只注册工具
+            name: '@zws/dsh-jianbao/tools'
 ```
 
-同时**删掉 profile 补丁里手抄的那一份** —— bundle patch 已经 insert 过，
-profile 再 insert 一次就是重复行（`entryMap.set` 后同 id 会互相遮蔽）。
+## 为什么前面几轮都没查对
 
-## Bug 3（P0）：bundle 层与 profile 层双重插入
+**测试用 mock loader，是假绿。**
 
-### 现象
+`root.provide('loader', { await: async () => {} })` 之后，`mountPreset` 建不出子行
+（`PresetTree` 构造函数读 `ctx.fiber.entry`，裸 Context 的 root fiber 没有 entry），
+`tree.entries()` 恒为 0，`auditRows` 什么都不报，`broken` 就恒为 null。
+断言「`broken === null`」通过，但它在真机里必然失败。
 
-修完 Bug 1、2 之后又测了一遍真实加载链，发现 `jianbao` 和 `jianbao-preset`
-**各被插入了两次**。
+现在的测试只断言**真能验的**：补丁合成结果、15 行齐全、
+`@deepseek-ai/dsh-agent-preset` 可加载且 `EntryGroup.key = true`。
+`broken` 是否为 null 不再假装知道。
 
-### 定位
+## 通用教训
 
-profile 的 `package.json` 里：
-
-```json
-"dsh": { "profile": { "bundles": ["@zws/dsh-jianbao", "@deepseek-ai/dsh-base", ...] } }
-```
-
-而 `@zws/dsh-jianbao` 自己的 `package.json` 声明了：
-
-```json
-"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
-```
-
-`loadProfileDirectory` 的组合顺序是：
-
-1. 按 `dsh.profile.bundles` 顺序应用**每个 bundle 的 patch 文件**；
-2. 再应用 **profile 自己的 `cordis.patch.yml`**；
-3. 再应用启动器层（`--patch`、flag 派生）。
-
-也就是说 **bundle 层已经把我们那两行插进去了**。我又往 profile 层
-追加了一份手抄的块，于是同一 id 出现两次。
-
-实测（真实 `loadProfile`）：
-
-```
-=== 所有 jianbao 相关的 patch 行 ===
-  jianbao
-  jianbao-preset
-  profile:jianbao        ← 重复
-  profile:jianbao-preset ← 重复
-DUPLICATE 有重复插入
-```
-
-### 修法
-
-删掉 profile 层那一整块，**只留 bundle 层的 `cordis.patch.yml`**。
-删后再跑真实 `loadProfile` + `composeEntries`：
-
-```
-总 patch 数: 86
-最终 entry 数: 213
-  jianbao          x1  name=@zws/dsh-jianbao  inject=["tools","systemPrompt"]  config={"presetId":"jianbao"}
-  jianbao-preset   x1  name=@zws/dsh-jianbao/preset
-FINAL ENTRIES PASS
-```
-
-### 为什么这条特别危险
-
-重复 entry 不会报错，只会让插件挂载两次（两个 fiber、两套工具、两个 Remote 服务）。
-症状会是「工具重复注册」「Remote 方法冲突」这类看起来无关的报错，
-比「加载失败」更难查。
-
-## 补上的三道防线
-
-### `test/preset-live.test.mjs`
-
-用 cordis 原样照抄的求值器（`new Function('ctx','expr','with(ctx){return eval(expr)}')`）
-把 YAML 里**每一个** `!!js` 表达式真跑一遍，并断言生效行里不出现 `import.meta`。
-注释里出现字样不算（YAML 不解析注释，那行注释正是用来提醒后人的）。
-
-### `test/patch.test.mjs`
-
-三条断言：
-
-1. `cordis.patch.yml` 的**每一个顶层补丁都是 `- insert:` 形式** —— 裸 `- id:` 判失败；
-2. insert 里同时含插件行与预设行，且带 `inject` 与 `presetId`；
-3. **profile 补丁里不出现 `jianbao`** —— bundle 层已经插过，profile 再插就是重复 entry。
-
-## 教训
-
-单测锁的是「我算得对不对」，锁不住「运行时吃不吃」。
-凡是交给外部运行时的声明（YAML、补丁、`!!js`、Remote 描述符、bundle 形态），
-测试里都要用**那个运行时自己的规则**去验一遍，而不是自己复述一遍规则。
+1. **单测锁的是「我算得对不对」，锁不住「运行时吃不吃」。**
+   凡交给外部运行时的声明（YAML、补丁、`!!js`、Remote 描述符、bundle 形态），
+   测试要用**那个运行时自己的规则**去验，不是自己复述一遍规则。
+2. **mock 掉依赖 = 关掉了要验的那部分。** 用 mock loader 验挂载，等于没验。
+   验不到就明说验不到，别写断言充数。
+3. **看官方怎么做的。** 四个根因里有三个，官方示例都给出了正确形状；
+   我是自己发明了 `register()` 路径，才踩进 base 平面与 realm 两个坑。
