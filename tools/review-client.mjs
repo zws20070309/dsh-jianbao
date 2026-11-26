@@ -39,6 +39,17 @@ if (pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch === './cordis.patch.yml') 
 else bad('dsh.bundle.patch 未声明')
 if (pkg.dsh && pkg.dsh.client && pkg.dsh.client.platform === 'web') ok('dsh.client.platform = web')
 else bad('dsh.client.platform 缺失')
+// exports 里每个非通配目标都必须在磁盘上真实存在，
+// 否则 import '@zws/dsh-jianbao/xxx' 会在运行期炸（重构删文件时最容易漏）。
+{
+  const missing = []
+  for (const [key, target] of Object.entries(pkg.exports ?? {})) {
+    if (typeof target !== 'string' || target.includes('*')) continue
+    if (!existsSync(join(root, target))) missing.push(key + ' -> ' + target)
+  }
+  if (missing.length === 0) ok('exports 全部目标存在')
+  else bad('exports 指向不存在的文件：' + missing.join(' / '))
+}
 
 console.log('')
 console.log('[2] cordis.patch.yml')

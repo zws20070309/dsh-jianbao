@@ -56,6 +56,20 @@ test('apply：注册服务、系统提示段与三只工具', async () => {
   }
 })
 
+test('env：带上包版本（工作台用它显示版本角标，便于确认重启后加载的是哪版）', async () => {
+  await mkdir(workspace, { recursive: true })
+  const { ctx, state } = await makeCtx(workspace)
+  mountAll(ctx)
+  const service = state.provided.get('jianbao')
+  const report = await service.env('s1', true)
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(report.plugin?.name, '@zws/dsh-jianbao')
+  assert.equal(report.plugin?.version, pkg.version)
+  assert.match(report.plugin.version, /^\d+\.\d+\.\d+/u, '版本号得像个版本号')
+  // 原有的环境字段一个都不能少（版本是加挂的，不是替换）
+  assert.equal(typeof report.latex, 'object')
+})
+
 test('jianbao_save：写盘 + 出 .tex，本机有 LaTeX 时出 PDF', async () => {
   await mkdir(workspace, { recursive: true })
   const { ctx, state } = await makeCtx(workspace)
