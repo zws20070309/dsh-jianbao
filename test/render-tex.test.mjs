@@ -115,8 +115,13 @@ test('转义：LaTeX 特殊字符不会炸', () => {
 
 test('期号行里的 \\hspace 不会被转义成文字', () => {
   const tex = renderTex(doc)
-  assert.match(tex, /2026年\\hspace\*\{7\.8bp\}第12期/u)
+  // 参考实测结构（逐字符宽度）：2026 [3.82] 年 [7.17] 第74 [3.76] 期 [7.17]
+  // 注意 issueText 已含「第N期」，外层只补前后两个间隙。
+  assert.match(tex, /2026\\hspace\*\{3\.82bp\}年\\hspace\*\{7\.17bp\}第12期/u)
+  assert.match(tex, /第12期\\hspace\*\{7\.17bp\}/u)
   assert.equal(/textbackslash\{\}hspace/u.test(tex), false)
+  // 不能出现重复的「期」（曾经渲染成「第18 期期」）
+  assert.equal(/期期/u.test(tex), false)
 })
 
 test('插图：大图独占 / 成对并排，受最大宽高约束', () => {
