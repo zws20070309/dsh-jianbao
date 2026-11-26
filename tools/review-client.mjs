@@ -146,6 +146,23 @@ if (sendPromptBody === '') {
 }
 
 console.log('')
+console.log('[7] 当前会话定位（uiSession 权威来源）')
+// 官方 ui-sidebar-right 判断"当前会话"用的是 ctx.uiSession.adapter.current；
+// 它的值来自 dsh-client-ui-session materialize() 的 { key: binding.sessionId }。
+if (/exports\.inject\s*=\s*\[[^\]]*'uiSession'/u.test(source)) ok('exports.inject 里声明了 uiSession')
+else bad('inject 缺 uiSession —— 直接读它会被 cordis 代理抛 cannot get property')
+if (/ctx\.uiSession\?\.adapter\?\.current\?\.getSnapshot\?\.\(\)\?\.key/u.test(source)) ok('优先读 uiSession.adapter.current.getSnapshot().key')
+else bad('currentSessionId 没有优先用 uiSession.adapter.current')
+if (/retainedBy\?\.mainView/u.test(source)) ok('保留 retainedBy.mainView 兜底（官方 publishMain 的判据）')
+else bad('丢了 retainedBy.mainView 兜底')
+// 未 inject 的属性访问必须包在 try 里，否则 cordis 代理抛错会冒到 React 渲染
+const fnStart = source.indexOf('function currentSessionId(')
+const fnEnd = fnStart < 0 ? -1 : source.indexOf('\n    }', fnStart)
+const fnBody = fnStart < 0 ? '' : source.slice(fnStart, fnEnd)
+if (/try\s*\{[^}]*uiSession/u.test(fnBody)) ok('uiSession 访问包在 try 里（服务缺失也不炸渲染）')
+else bad('uiSession 访问没包 try，服务缺失会把整个面板打挂')
+
+console.log('')
 if (fail.length === 0) {
   console.log('CLIENT REVIEW PASS')
   process.exit(0)
