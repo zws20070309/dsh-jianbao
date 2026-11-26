@@ -21,14 +21,20 @@
  */
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 const profileName = process.argv[2] ?? 'desktop'
 const ROW_IDS = ['jianbao', 'preset-jianbao']
 
 function findDshPackage() {
+  // 从运行环境解析安装位置 —— 不写死任何用户目录（那既是泄漏点，也会让
+  // 换一台机器就跑不起来）。APPDATA / LOCALAPPDATA 是 Windows 标准环境变量。
+  const roaming = process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming')
+  const local = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')
   const candidates = [
-    'C:/Users/USER/AppData/Roaming/npm/node_modules/@deepseek-ai/dsh/package.json',
-    'C:/Users/USER/AppData/Local/Programs/DeepSeek Harness/resources/app.asar/dsh/package.json',
+    join(roaming, 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
+    join(local, 'Programs', 'DeepSeek Harness', 'resources', 'app.asar', 'dsh', 'package.json'),
   ]
   for (const c of candidates) if (existsSync(c)) return c
   throw new Error('找不到 dsh 安装位置，请传 DSH_PKG 环境变量')
@@ -38,7 +44,7 @@ const dshPkg = process.env.DSH_PKG ?? findDshPackage()
 const req = createRequire(dshPkg)
 const boot = await import('file:///' + req.resolve('@deepseek-ai/dsh-app-boot').replace(/\\/g, '/'))
 const installAnchor = req.resolve('@deepseek-ai/dsh/package.json')
-const home = process.env.DSH_HOME ?? 'C:/Users/USER/.dsh'
+const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 
 console.log('jianbao verify-patcher')
 console.log('  dsh        : ' + dshPkg)
