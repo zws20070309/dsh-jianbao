@@ -22,7 +22,7 @@ import {
   normalizeTitle,
   splitNames,
 } from '../lib/brief.js'
-import { STRUCTURE } from '../lib/style-corpus.js'
+import { BANNED, PUNCT_RULES, STRUCTURE } from '../lib/style-corpus.js'
 
 test('版式常量与用户给定规范一致', () => {
   assert.equal(LAYOUT.paper.widthMm, 210)
@@ -196,3 +196,25 @@ test('字数区间与样本分布一致（400–700，不是 400–600）', () =
   )
 })
 
+
+test('禁用词两档：硬禁必须报错，软词只提示', () => {
+  // 语料里 BANNED 混了两类东西：真正一次未出现的 AI 腔词，和「非常」「十分」
+  // 这种程度副词。后者当硬错会逼模型做无意义反复，比留一个「非常」更伤。
+  const SOFT = ['大大', '非常', '十分', '极其', '超级', '第一，', '第二，', '第三，', '对齐', '链路', '矩阵']
+  const HARD = [...BANNED.filter((w) => !SOFT.includes(w)), '与此同时', '毋庸置疑', '总而言之']
+  for (const must of ['综上所述', '抓手', '闭环', '生态化', '破圈', '小编']) {
+    assert.ok(HARD.includes(must), '硬禁表缺: ' + must)
+  }
+  for (const soft of ['非常', '十分', '大大']) {
+    assert.equal(HARD.includes(soft), false, '软词不该进硬禁表: ' + soft)
+  }
+})
+
+test('人称与标点：我们/我校/感叹号/问号都有实测依据', () => {
+  const fp = PUNCT_RULES.firstPerson
+  assert.equal(fp['我们'], 0, '样本里「我们」应为 0 次')
+  assert.ok(fp['我院'] > 0, '学院口径用「我院」')
+  assert.equal(PUNCT_RULES.question.count, 0, '样本里没有问号')
+  assert.ok(PUNCT_RULES.exclamation.bodyCount <= 2, '正文感叹号极少')
+  assert.ok(Array.isArray(PUNCT_RULES.exclamation.allowOnly))
+})
