@@ -116,6 +116,36 @@ if (bundles.length === 0) {
 }
 
 console.log('')
+console.log('[6] 任务书投递路径（作用域陷阱回归）')
+// 右栏工作台挂在 root scope 上，而 conversation.send 只认作用域：
+//   scopeId(op){ const id = sessions.scopeOf(this.ctx); if (id === void 0) throw ... }
+// 所以 sendPrompt 必须走 binding.session.prompt，不得再碰 conversation / sessions.scope。
+const sendPromptBody = (() => {
+  const start = source.indexOf('async function sendPrompt(')
+  if (start < 0) return ''
+  const end = source.indexOf('\n    }', start)
+  return end < 0 ? source.slice(start) : source.slice(start, end)
+})()
+if (sendPromptBody === '') {
+  bad('找不到 sendPrompt 实现')
+} else {
+  if (/\.prompt\(\[\{ type: 'text', text \}\], 'queue'\)/u.test(sendPromptBody)) ok('走 binding.session.prompt([{type:text,text}], \'queue\')')
+  else bad('sendPrompt 没有调用 session.prompt(content, \'queue\')')
+  if (/sessions\.binding\(sessionId\)/u.test(sendPromptBody)) ok('先偷看 sessions.binding（会话被视图 retain 时零成本）')
+  else bad('sendPrompt 没有先读 sessions.binding')
+  if (/sessions\.using\(sessionId, \{ source: '[^']+' \}/u.test(sendPromptBody)) ok('偷不到才借：走官方 sessions.using（内部已 await ready）')
+  else bad('sendPrompt 没有用 sessions.using 借引用')
+  if (/await reference\.ready/u.test(sendPromptBody)) ok('兜底路径 await reference.ready（binding getter 在 ready 前会抛）')
+  else bad('兜底路径漏了 await reference.ready')
+  if (!/scoped\.conversation|\.conversation\.send|sessions\.scope\(/u.test(sendPromptBody)) ok('不再依赖会话作用域（conversation / sessions.scope）')
+  else bad('仍在用作用域寻址的 conversation，会复现「拿不到 conversation 服务」')
+  if (/result\.ok === false/u.test(sendPromptBody)) ok('Result 的 ok:false 会转成异常，不静默吞掉')
+  else bad('session.prompt 返回 ok:false 时没有抛错（会静默失败）')
+  if (!/openState !== 'open'/u.test(sendPromptBody)) ok('不拿 openState 设卡（prompt 本身不检查它）')
+  else bad('用 openState 设卡会误伤「全新会话第一次发送」')
+}
+
+console.log('')
 if (fail.length === 0) {
   console.log('CLIENT REVIEW PASS')
   process.exit(0)
