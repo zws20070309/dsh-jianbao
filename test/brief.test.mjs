@@ -22,6 +22,7 @@ import {
   normalizeTitle,
   splitNames,
 } from '../lib/brief.js'
+import { STRUCTURE } from '../lib/style-corpus.js'
 
 test('版式常量与用户给定规范一致', () => {
   assert.equal(LAYOUT.paper.widthMm, 210)
@@ -180,5 +181,18 @@ test('竞赛用词：非竞赛类型不许补「大赛」', () => {
   assert.equal(ensureContestWording('西藏大学理学院举办职业生涯规划', '职业生涯规划', 'contest'), '西藏大学理学院举办职业生涯规划大赛')
   // 不传类型时保持旧行为（向后兼容，测试用得到）
   assert.equal(ensureContestWording('西藏大学理学院举办职业生涯规划', '职业生涯规划'), '西藏大学理学院举办职业生涯规划大赛')
+})
+
+
+test('字数区间与样本分布一致（400–700，不是 400–600）', () => {
+  // 63 篇真实样本实测：min 397 / median 618 / p75 690 / p90 761 / suggest [400,700]
+  // 上限卡 600 会把过半的真实简报判成超限，逼模型删内容。这条测试锁住它。
+  const s = STRUCTURE.chars
+  assert.equal(s.suggest[0], 400)
+  assert.equal(s.suggest[1], 700)
+  assert.ok(
+    s.median >= s.suggest[0] && s.median <= s.suggest[1],
+    '样本中位数 ' + s.median + ' 不在建议区间内',
+  )
 })
 
