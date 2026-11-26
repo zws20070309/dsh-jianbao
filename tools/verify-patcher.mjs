@@ -98,12 +98,14 @@ for (const id of ROW_IDS) {
 const pluginRow = rows.find((r) => r.id === 'jianbao')
 if (pluginRow !== undefined) {
   const injectOk = Array.isArray(pluginRow.inject) && pluginRow.inject.includes('tools') && pluginRow.inject.includes('systemPrompt')
-  const presetOk = pluginRow.config?.presetId === 'jianbao'
+  // 顶层行**不该**再带 config.presetId：那个键没有任何代码读，是死配置，
+  // 门控已改成按会话实际挂的预设判（lib/gate.js 的 decideAgent）。
+  const noDeadConfig = pluginRow.config === undefined
   console.log('')
   console.log('=== 插件行契约 ===')
-  console.log('  inject  : ' + (injectOk ? 'OK' : 'FAIL') + ' ' + JSON.stringify(pluginRow.inject))
-  console.log('  presetId: ' + (presetOk ? 'OK' : 'FAIL') + ' ' + JSON.stringify(pluginRow.config?.presetId))
-  if (!injectOk || !presetOk) bad += 1
+  console.log('  inject      : ' + (injectOk ? 'OK' : 'FAIL') + ' ' + JSON.stringify(pluginRow.inject))
+  console.log('  无死配置    : ' + (noDeadConfig ? 'OK（门控按会话实际预设判）' : 'FAIL 仍有 config: ' + JSON.stringify(pluginRow.config)))
+  if (!injectOk || !noDeadConfig) bad += 1
 }
 
 const presetRow = rows.find((r) => r.id === 'preset-jianbao')

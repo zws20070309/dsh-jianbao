@@ -36,19 +36,34 @@
 3. **工具面收窄**：去掉 mcp / skill 用户根 / blender / terminal / subagent，
    只留读、写、编译、联网、出图。
 
-## 「简报」标签的门控
+## 门控（标签 / 提示段 / 工具面，三处同一判据）
 
 `conversation.view` 是全局槽位 —— 注册一次，**所有**会话的标签栏都会多一项。
-所以不能无条件注册。实现方式：
+同样地，`ctx.systemPrompt.section()` 与 `ctx.tools.register()` 在顶层注册也是全局的：
+注册一次，**所有预设**的会话都会拿到。所以三处都必须按预设判定。
 
-- 宿主侧 `lib/gate.js` 读会话的 `agentPreset` 投影，判定是否放行；
-- 浏览器侧在注册槽位**之前**先调 `remote.jianbao.gate(sessionId)`，
-  只在放行时注册，切走时注销；
-- 调试后门：`DSH_JIANBAO_GATE=0` 对全部会话放行。
+| 面 | 位置 | 判据 | 不匹配时 |
+|---|---|---|---|
+| 「简报」标签 | 浏览器侧先问 `remote.jianbao.gate(sessionId)` | `decide()` | 不注册槽位 |
+| 系统提示段 `jianbao:spec` | `lib/index.js` 的 `systemPrompt.section` | `decideAgent(context.agent)` | 返回空串，整段被丢掉 |
+| 三只工具 | `lib/index.js` 的 `tools.register(def, { when })` | `decideAgent(context.agent)` | 不进 toolSet，schema 不出现 |
+
+预设解析链（`lib/gate.js` 的 `presetOfAgent`，任一环拿到就返回）：
+
+1. `agentPresets.composedPreset(agent.ctx)` —— 本轮真正挂上的预设；
+2. 会话的 `agentPreset` 投影；
+3. `session.header.agentPreset` —— 冷启动阶段投影还没建好时的兜底。
+
+解析链上任何一环抛错都**只降级不抛出**：宁可少注入，不可误注入
+（抛进提示词装配会打断整步，抛进 `when` 会变成 `ToolActivationError`）。
+
+- 调试后门：`DSH_JIANBAO_GATE=0` 对三处同时放行。
 
 改预设后需要**重启 DSH** 并新建会话 —— 已开始的会话保留它启动时的组合。
 
 ## 三只工具
+
+三只工具只在**简报预设**的会话里可见（见上「门控」）。
 
 | 工具 | 输入 | 输出 |
 |---|---|---|

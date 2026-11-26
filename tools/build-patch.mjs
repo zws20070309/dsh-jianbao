@@ -118,9 +118,16 @@ export function buildPatchText() {
   //
   // 预设子行继承声明行的平面，能解析到 profile 平面里的 @zws/dsh-jianbao，
   // 所以顶层那一行不但多余，还有害。
+  // 这一行**没有 config**：预设 id 不从这里传。
+  //
+  // 曾经写过 `config: { presetId: jianbao }`，但 lib/ 里没有任何代码读这个键
+  // （grep presetId：只有补丁、本脚本、verify-patcher 三处提到它）——
+  // 它是个死配置，还让后来的人误以为「提示段已经按预设门控了」。
+  // 门控现在按**会话实际挂的预设**判（lib/gate.js 的 decideAgent），
+  // 不依赖任何人手填的字符串，所以这个键删掉。
   const head = [
     '- insert:',
-    '    # 顶层服务行：provide 工作台 Remote 服务 + 常驻提示段。',
+    '    # 顶层服务行：provide 工作台 Remote 服务 + 常驻提示段 + 三只工具。',
     '    #',
     '    # **必须在预设外面。** 预设里 provide 服务是死路：',
     '    #   · 不 isolate → cordis 把服务写进根 isolate 表（cordis:805），',
@@ -132,11 +139,13 @@ export function buildPatchText() {
     '    #     浏览器侧 remote.jianbao 永远「未挂载」。',
     '    #',
     '    # 官方所有 preset 的插件行都只注册工具、不 provide 服务，就是这个原因。',
+    '    #',
+    '    # 提示段与三只工具都**按会话实际挂的预设**门控（lib/gate.js 的 decideAgent）：',
+    '    # 不是简报预设的会话，提示段返回空串（整段消失），三只工具的 when 判 false',
+    '    # （不进 toolSet，连 schema 都不会出现在 run_code 的声明里）。',
     '    - id: jianbao',
     "      name: '@zws/dsh-jianbao'",
     '      inject: [tools, systemPrompt]',
-    '      config:',
-    '        presetId: jianbao',
     '',
   ].join('\n')
 

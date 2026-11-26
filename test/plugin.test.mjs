@@ -11,16 +11,48 @@ import { tmpdir } from 'node:os'
 
 import * as plugin from '../lib/index.js'
 
-async function makeCtx(workspace) {
-  const state = { tools: new Map(), sections: [], provided: new Map(), effects: [] }
+/**
+ * 造一个假宿主 ctx。
+ *
+ * @param {string} workspace 工作区根
+ * @param {{preset?:string}} [options] preset 决定提示段与三只工具是否准入；
+ *   不传按 'jianbao'（本插件的主场），要验「别的预设看不到」时显式传 'ptc'。
+ */
+async function makeCtx(workspace, options = {}) {
+  const preset = options.preset ?? 'jianbao'
+  const state = {
+    tools: new Map(),
+    // 登记时的 second arg（{when}）—— 它决定这一步这只工具**看不看得见**。
+    toolOptions: new Map(),
+    sections: [],
+    provided: new Map(),
+    effects: [],
+    preset,
+  }
   const ctx = {
-    tools: { register: (def) => { state.tools.set(def.name, def); return () => {} } },
+    tools: {
+      register: (def, opts) => {
+        state.tools.set(def.name, def)
+        state.toolOptions.set(def.name, opts)
+        return () => {}
+      },
+    },
     systemPrompt: { section: (section) => { state.sections.push(section); return () => {} } },
     effect: (fn) => { state.effects.push(fn()); return () => {} },
     provide: (key, svc) => { state.provided.set(key, svc) },
-    get: (key) => (key === 'sessions' ? { get: () => ({ header: { cwd: workspace, id: 's1' } }) } : undefined),
+    get: (key) => {
+      if (key === 'sessions') return { get: () => ({ header: { cwd: workspace, id: 's1' } }) }
+      // 预设解析链的第一环：composedPreset(agent.ctx) 给出本轮真正挂上的预设。
+      if (key === 'agentPresets') return { composedPreset: () => state.preset }
+      return undefined
+    },
   }
   return { ctx, state }
+}
+
+/** 造一个 live Agent 形状的装配上下文（被测工具/提示段只读 agent.ctx 与 agent.session）。 */
+function assembleContext(ctx) {
+  return { agent: { ctx, session: { header: { id: 's1', agentPreset: ctx.get('agentPresets').composedPreset() } } } }
 }
 
 const workspace = join(tmpdir(), 'dsh-jianbao-test-' + process.pid)
@@ -46,7 +78,8 @@ test('apply：注册服务、系统提示段与三只工具', async () => {
   assert.equal(state.sections.length, 1)
   assert.equal(state.sections[0].name, 'jianbao:spec')
   assert.equal(state.sections[0].interpolate, false)
-  assert.match(state.sections[0].text(), /28\.8/u)
+  // 提示段是**按预设门控**的：本会话挂的就是 jianbao，正文明文必须在。
+  assert.match(state.sections[0].text(assembleContext(ctx)), /28\.8/u)
   assert.deepEqual([...state.tools.keys()], ['jianbao_state', 'jianbao_save', 'jianbao_render'])
   for (const tool of state.tools.values()) {
     assert.equal(typeof tool.execute, 'function')
@@ -54,6 +87,50 @@ test('apply：注册服务、系统提示段与三只工具', async () => {
     assert.equal(tool.parameters.type, 'object')
     assert.equal(tool.parameters.properties !== undefined, true)
   }
+})
+
+test('门控（提示段）：非简报预设的会话拿到空串 —— 空段会被 renderPrompt 整段丢掉', async () => {
+  await mkdir(workspace, { recursive: true })
+  const { ctx, state } = await makeCtx(workspace, { preset: 'ptc' })
+  mountAll(ctx)
+  assert.equal(state.sections[0].name, 'jianbao:spec')
+  assert.equal(
+    state.sections[0].text(assembleContext(ctx)),
+    '',
+    '别的预设的会话里不许出现「## 简报写作」——那会把假前提（本会话里有一份简报工程）塞进模型',
+  )
+  // 装配上下文缺失时也不能把正文漏出去（宁可少注入）。
+  assert.equal(state.sections[0].text(undefined), '')
+  assert.equal(state.sections[0].text({}), '')
+})
+
+test('门控（工具面）：非简报预设的会话里三只工具都不准入', async () => {
+  await mkdir(workspace, { recursive: true })
+  const ptc = await makeCtx(workspace, { preset: 'ptc' })
+  mountAll(ptc.ctx)
+  for (const name of ['jianbao_state', 'jianbao_save', 'jianbao_render']) {
+    const opts = ptc.state.toolOptions.get(name)
+    assert.equal(typeof opts?.when, 'function', name + ' 必须带 when 激活判据')
+    assert.equal(await opts.when(assembleContext(ptc.ctx)), false, name + ' 在 ptc 会话里不该可见')
+  }
+
+  const own = await makeCtx(workspace, { preset: 'jianbao' })
+  mountAll(own.ctx)
+  for (const name of ['jianbao_state', 'jianbao_save', 'jianbao_render']) {
+    assert.equal(await own.state.toolOptions.get(name).when(assembleContext(own.ctx)), true, name + ' 在简报预设里必须可见')
+  }
+})
+
+test('门控：when 遇到畸形上下文返回 false 而不是抛错（抛出去会打断整步工具解析）', async () => {
+  await mkdir(workspace, { recursive: true })
+  const { ctx, state } = await makeCtx(workspace, { preset: 'jianbao' })
+  mountAll(ctx)
+  const when = state.toolOptions.get('jianbao_state').when
+  assert.equal(await when(undefined), false)
+  assert.equal(await when({}), false)
+  // agent 上没有 ctx 时解析链走 header 兜底：header.agentPreset=jianbao 仍然放行
+  assert.equal(await when({ agent: { session: { header: { agentPreset: 'jianbao' } } } }), true)
+  assert.equal(await when({ agent: { session: { header: { agentPreset: 'ptc' } } } }), false)
 })
 
 test('env：带上包版本（工作台用它显示版本角标，便于确认重启后加载的是哪版）', async () => {

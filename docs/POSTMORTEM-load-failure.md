@@ -87,6 +87,11 @@ lib/index.js   apply()             → provide Remote 服务 + 常驻提示段�
 lib/tools.js   apply()             → 只调 createToolRegistrar，不 provide
 ```
 
+> **后续修正（2026-11-26）**：顶层行意味着提示段与三只工具对**所有预设**的会话可见 ——
+> 实测 ptc 会话的系统提示词末尾挂着「## 简报写作」那 1679 字符、工具面里也有三只 jianbao 工具。
+> 现在两者都按会话实际挂的预设门控（`lib/gate.js` 的 `decideAgent` + 工具的 `{ when }`），
+> 见 README 的「门控」一节。本条不改变上面的拆法结论，只补上漏掉的门控。
+
 ```yaml
 - insert:
     - id: jianbao                  # 顶层：服务 + 提示段
