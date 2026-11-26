@@ -169,3 +169,16 @@ test('时间：作息时刻不写进正文开场时间', () => {
   assert.equal(normalizeForm({ activityTime: '20号到24号 每天9:00-17:00' }).timeHm, '')
 })
 
+
+test('竞赛用词：非竞赛类型不许补「大赛」', () => {
+  // 这是死代码里藏的一个坑：ensureContestWording 一旦被误用到讲座/会议上，
+  // 「开展心理健康」会变成「开展心理健康大赛」，「召开新生见面会」变成
+  // 「召开新生见面会大赛」。守卫放进函数内部，调用方不必记得判类型。
+  assert.equal(ensureContestWording('西藏大学理学院开展心理健康', '心理健康', 'lecture'), '西藏大学理学院开展心理健康')
+  assert.equal(ensureContestWording('西藏大学理学院召开新生见面会', '新生见面会', 'meeting'), '西藏大学理学院召开新生见面会')
+  // 竞赛类型仍然要补
+  assert.equal(ensureContestWording('西藏大学理学院举办职业生涯规划', '职业生涯规划', 'contest'), '西藏大学理学院举办职业生涯规划大赛')
+  // 不传类型时保持旧行为（向后兼容，测试用得到）
+  assert.equal(ensureContestWording('西藏大学理学院举办职业生涯规划', '职业生涯规划'), '西藏大学理学院举办职业生涯规划大赛')
+})
+
