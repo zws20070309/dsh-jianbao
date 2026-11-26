@@ -60,7 +60,7 @@ test('正文末行不能压页脚：\maxdepth 必须归零，textheight 按 22 �
   assert.ok(lastBaseline + METRICS.bodyPt * 0.25 < 740.8, '末行字形底不能碰到页脚字顶')
 })
 
-test('插图前会先量高再决定是否换页（避免图顶着页脚）', () => {
+test('插图前后用 \\addvspace 而不是 \\vspace*（后者会阻止断页）', () => {
   const tex = renderTex({
     title: '标题',
     issue: '第1期',
@@ -70,8 +70,14 @@ test('插图前会先量高再决定是否换页（避免图顶着页脚）', ()
       { type: 'image', src: 'assets/a.png' },
     ],
   })
-  // 量高 → 比较剩余纵深 → 放不下才 \newpage
-  assert.equal(tex.includes('\\settoheight{\\dimen0}'), true)
-  assert.equal(tex.includes('\\pagegoal-\\pagetotal'), true)
-  assert.equal(tex.includes('\\dimen0+' + LAYOUT.imageKeepPt + 'bp'), true)
+  // \vspace* 是不可丢弃的胶，会阻止此处断页 —— 图放不下时整段推到下一页，
+  // 上一页底部留一大片空白（实测第 2 页只剩 6 行、第 2 页只有 1 行那种空页）。
+  // \addvspace 在断页点会被丢弃，不影响分页，视觉结果一致（实测都是 10.5bp）。
+  assert.equal(tex.includes('\\addvspace{' + LAYOUT.imageGapPt + 'bp}'), true)
+  assert.equal(/\\vspace\*\{' \+ LAYOUT\.imageGapPt/u.test(tex), false)
+  // 不能再自己插 \newpage：图是单个盒子，TeX 本来就会整体移到下一页。
+  // 探针实测此时 \\pagetotal 常常已 ≥ \\pagegoal（页面已溢出），
+  // 再 \\newpage 就是断第二次 —— 那正是空页的来源。
+  assert.equal(tex.includes('\\settoheight'), false)
+  assert.equal(tex.includes('\\newpage\n\\fi'), false)
 })
