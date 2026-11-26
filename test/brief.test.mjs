@@ -125,3 +125,47 @@ test('表单归一化：类型回落 + 领导拆分', () => {
   assert.deepEqual(form.leaders, ['周某某'])
   assert.equal(normalizeForm({}).briefType.id, 'activity')
 })
+
+test('时间：时间段（活动常常不是某一个时刻）', () => {
+  // 用户明确提出的场景：「20号到24号」这种区间。
+  // 原实现只抓第一段日期，「2026年4月20日到24日」会被截成「4月20日」，
+  // 末几天凭空消失 —— 简报时间写错是硬伤。
+  assert.equal(extractMonthDay('4月20日到24日'), '4月20日至24日')
+  assert.equal(extractMonthDay('4月20日至24日'), '4月20日至24日')
+  assert.equal(extractMonthDay('2026年4月20日到24日'), '4月20日至24日')
+  assert.equal(extractMonthDay('2026年4月20日至4月24日 全天'), '4月20日至24日')
+
+  // 跨月
+  assert.equal(extractMonthDay('4月28日—5月3日'), '4月28日至5月3日')
+
+  // 无年份的短写法
+  assert.equal(extractMonthDay('8.20-8.24'), '8月20日至24日')
+  assert.equal(extractMonthDay('8/20~8/24'), '8月20日至24日')
+
+  // 只有「日」没有月份：不硬补月份，照实写
+  assert.equal(extractMonthDay('20号到24号'), '20日至24日')
+})
+
+test('时间：枚举（分几天办）保留全部日期', () => {
+  // 顿号/逗号分隔是枚举，不是区间 —— 不能顺手当成「到」。
+  assert.equal(extractMonthDay('4月20日、21日'), '4月20日、21日')
+  assert.equal(extractMonthDay('4月20日,22日,24日'), '4月20日、22日、24日')
+})
+
+test('时间：单个时刻不受时间段逻辑影响', () => {
+  assert.equal(extractMonthDay('2026年4月27日 14:30'), '4月27日')
+  assert.equal(extractMonthDay('4月27日 14:30-16:00'), '4月27日')
+})
+
+
+test('时间：作息时刻不写进正文开场时间', () => {
+  // 「20号到24号 每天9:00-17:00」里的 9:00 是作息，不是开场时间。
+  // 当成开场时间写进正文会是「9时0分，学院开展…」，读起来很怪。
+  assert.equal(extractTimeHm('2026年4月27日 14:30'), '14:30')
+  assert.equal(extractTimeHm('20号到24号 每天9:00-17:00'), '')
+  assert.equal(extractTimeHm('4月20日至24日 全天'), '')
+  // timeText 仍然要保留区间
+  assert.equal(normalizeForm({ activityTime: '20号到24号 每天9:00-17:00' }).timeText, '20日至24日')
+  assert.equal(normalizeForm({ activityTime: '20号到24号 每天9:00-17:00' }).timeHm, '')
+})
+
