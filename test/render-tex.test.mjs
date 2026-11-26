@@ -184,8 +184,13 @@ test('成对插图：两张图并排，不加表格也不加题注行', () => {
   })
   assert.equal(/\\begin\{tabular\}/u.test(tex), false)
   assert.match(tex, /\\includegraphics.*\\hspace\{0\.4cm\}\\includegraphics/u)
-  // 两张图在同一行：只允许一个 center 环境
-  assert.equal((tex.match(/\\begin\{center\}/gu) || []).length, 1)
+  // 两张图必须在同一行（只能出现一次 \includegraphics 所在的行）
+  const line = tex.split('\n').find((l) => l.includes('assets/a.png'))
+  assert.ok(line !== undefined && line.includes('assets/b.png'), '两张图必须在同一行')
+  // 不再用 center 环境：\topsep 会把图往下推 4.42bp，还会让下一行行距漂到 33.2。
+  // 改用 \centering（与标题处同一套做法），只改对齐不产生间距。
+  assert.equal(/\\begin\{center\}/u.test(tex), false)
+  assert.match(tex, /\{\\centering /u)
 })
 
 test('环绕图的负偏移不能是 undefined（wrapOverlapPt 必须在 METRICS 里有定义）', () => {

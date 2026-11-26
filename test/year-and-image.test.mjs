@@ -2,7 +2,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { normalizeYear, LAYOUT } from '../lib/brief.js'
+import { normalizeYear, LAYOUT, METRICS } from '../lib/brief.js'
 import { renderTex } from '../lib/render-tex.js'
 
 test('报头年份：中文数字 / 带「年」/ 全角，一律规范成四位阿拉伯数字', () => {
@@ -33,6 +33,31 @@ test('报头不能渲染成「二零二六年年」：年份自带「年」时�
 
 test('插图留白常量：20.7bp（参考样本图底与页脚的最小实测间距）', () => {
   assert.equal(LAYOUT.imageKeepPt, 20.7)
+  // 图与上下文之间的留白：只用 \centering 时实测只剩 0.49bp（图贴文字），
+  // 参考样本是 6.97 / 10.25 / 20.32bp。取 10bp 落在参考区间内。
+  assert.equal(LAYOUT.imageGapPt, 10)
+  assert.ok(LAYOUT.imageGapPt >= 6.97 && LAYOUT.imageGapPt <= 20.32)
+})
+
+test('正文末行不能压页脚：\maxdepth 必须归零，textheight 按 22 行算', () => {
+  const d = {
+    title: '标题',
+    issue: '第1期',
+    year: '2026',
+    blocks: [{ type: 'p', text: '正文。' }],
+    cc: ['校领导、院领导', '党委（校长）办公室、党委宣传部'],
+  }
+  const tex = renderTex(d)
+  // \maxdepth 默认 4pt：不归零的话断页时末行可以多探出约 4bp，
+  // 越过 textheight 的约束直接压在页脚「— N —」上（用户实测截图）。
+  assert.equal(tex.includes('\\setlength{\\maxdepth}{0bp}'), true)
+  // textheight = textBaselineLimit − marginTop + bodyPt*0.25
+  const expected = Number((METRICS.textBaselineLimit - METRICS.marginTop + METRICS.bodyPt * 0.25).toFixed(3))
+  assert.equal(tex.includes('\\setlength{\\textheight}{' + expected + 'bp}'), true)
+  // 上限必须容得下 22 行（127.94 + 21×28.8 = 732.74），且让末行字形底不碰页脚字顶 740.80
+  const lastBaseline = METRICS.topSkip + METRICS.marginTop + 21 * METRICS.linePt
+  assert.ok(METRICS.textBaselineLimit >= lastBaseline, 'textheight 必须容得下 22 行')
+  assert.ok(lastBaseline + METRICS.bodyPt * 0.25 < 740.8, '末行字形底不能碰到页脚字顶')
 })
 
 test('插图前会先量高再决定是否换页（避免图顶着页脚）', () => {
