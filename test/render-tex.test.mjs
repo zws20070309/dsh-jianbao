@@ -39,11 +39,11 @@ test('页面几何：A4 595.32×841.92bp + 左79.4/右73.7/上104.9/下99.25bp',
 
 test('字号全部按实测 bp 写：正文 15.96 / 标题 21.96 / 一级 19.93 / 抄送 15', () => {
   const tex = renderTex(doc)
-  assert.match(tex, /\{\\FZTitle\\fontsize\{21\.96bp\}\{28\.92bp\}\\selectfont/u)
-  assert.match(tex, /\{\\FZHOne\\fontsize\{19\.93bp\}\{28\.8bp\}\\selectfont 一、赛前准备\}/u)
-  assert.match(tex, /\{\\FZHTwo\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont （一）赛制安排\}/u)
-  assert.match(tex, /\{\\FZHThree\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont 1\. 报名情况\}/u)
-  assert.match(tex, /\{\\FZCc\\fontsize\{15bp\}\{28\.8bp\}\\selectfont/u)
+  assert.match(tex, /\{\\FZTitleLatin\\FZTitle\\fontsize\{21\.96bp\}\{28\.92bp\}\\selectfont/u)
+  assert.match(tex, /\{\\FZHOneLatin\\FZHOne\\fontsize\{19\.93bp\}\{28\.8bp\}\\selectfont 一、赛前准备\}/u)
+  assert.match(tex, /\{\\FZHTwoLatin\\FZHTwo\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont （一）赛制安排\}/u)
+  assert.match(tex, /\{\\FZHThreeLatin\\FZHThree\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont 1\. 报名情况\}/u)
+  assert.match(tex, /\{\\FZCcLatin\\FZCc\\fontsize\{15bp\}\{28\.8bp\}\\selectfont/u)
 })
 
 test('正文段不缩进（与参考 PDF 一致：正文左边界 = 报头左边界 = 79.4）', () => {
@@ -63,11 +63,18 @@ test('抄送区：两条通栏线 + \\vfill 压末页底，缩进 14.8 / 59.2bp'
 test('页脚：eso-pic 绝对定位到基线 752.856 / 右端 506.01', () => {
   const tex = renderTex(doc)
   assert.match(tex, /\\AddToShipoutPictureFG/u)
-  const expectedX = Math.round((METRICS.pageW - METRICS.marginRight - METRICS.footerRightIndent) * 1000) / 1000
+  // 左端锚在参考实测的 454.78，再减掉 eso-pic 坐标系 7.98bp 的固有偏移。
+  const expectedX = Math.round((METRICS.footerDashLeft - METRICS.footerLeftNudge) * 1000) / 1000
   const expectedY = Math.round((METRICS.pageH - METRICS.footerBaseline) * 1000) / 1000
   assert.match(tex, new RegExp('\\\\put\\(\\\\LenToUnit\\{' + expectedX + 'bp\\},\\\\LenToUnit\\{' + expectedY + 'bp\\}\\)', 'u'))
-  // 数字段用定宽盒锁成 pageNumBox（参考「 1 」实测 17.55）
-  assert.match(tex, /\\makebox\[17\.55bp\]\[c\]\{\\fontspec\{Times New Roman\}/u)
+  // 三段定宽：dash 14.04 + 数字占位 21.00 + dash 14.04 + 尾空格 2.15 = 51.23
+  // 454.78 + 51.23 = 506.01，正是参考页脚的右端。
+  const total = Math.round(
+    (METRICS.pageDashBox + METRICS.pageNumBox + METRICS.pageDashBox + METRICS.pageTailBox) * 1000,
+  ) / 1000
+  assert.match(tex, new RegExp('\\\\makebox\\[' + total + 'bp\\]\\[l\\]\\{', 'u'))
+  assert.match(tex, /\\makebox\[21bp\]\[l\]\{\\fontspec\{Times New Roman\}/u)
+  assert.equal(Math.round((METRICS.footerDashLeft + total) * 100) / 100, 506.01, '页脚右端必须落在 506.01')
   const noPage = renderTex({ ...doc, withPageNumber: false })
   assert.equal(/AddToShipoutPictureFG/u.test(noPage), false)
 })
@@ -117,32 +124,48 @@ test('插图：大图独占 / 成对并排，受最大宽高约束', () => {
     ...doc,
     blocks: [
       { type: 'p', text: '正文。' },
-      { type: 'image', src: 'assets/a.png', caption: '图注' },
+      { type: 'image', src: 'assets/a.png' },
       { type: 'imagePair', srcs: ['assets/b.png', 'assets/c.png'] },
     ],
   })
   assert.match(withImages, new RegExp('width=' + LAYOUT.largeImageWidthCm + 'cm,height=' + LAYOUT.largeImageMaxHeightCm + 'cm', 'u'))
   assert.match(withImages, new RegExp('width=' + LAYOUT.smallImageWidthCm + 'cm', 'u'))
-  assert.match(withImages, /图注/u)
+  assert.match(withImages, /\\includegraphics.*\\hspace\{0\.4cm\}\\includegraphics/u)
 })
 
-test('成对插图：两张图并排 + 图注各挂图下（tabular 对齐）', () => {
+test('插图**不生成图注**：63 份真实简报里独立题注段为 0 份', () => {
+  // 即便调用方传了 caption / captions，渲染器也必须忽略 ——
+  // 参考简报的图直接压在正文行间，下面不跟任何说明文字。
   const tex = renderTex({
     ...doc,
-    blocks: [{ type: 'imagePair', srcs: ['assets/a.png', 'assets/b.png'], captions: ['现场讲解', '分组实验'] }],
+    blocks: [
+      { type: 'image', src: 'assets/a.png', caption: '图片1 现场' },
+      { type: 'imagePair', srcs: ['assets/b.png', 'assets/c.png'], captions: ['图片2 甲', '图片3 乙'] },
+    ],
   })
-  assert.match(tex, /\\begin\{tabular\}[\s\S]*includegraphics[\s\S]*&[\s\S]*includegraphics/u)
-  assert.match(tex, /现场讲解\} & \{\\FZCc/u)
-  assert.match(tex, /分组实验/u)
+  assert.equal(/图片1|图片2|图片3/u.test(tex), false, '图注文字不得出现在 .tex 里')
+  assert.equal(/\\begin\{tabular\}/u.test(tex), false, '不能为了放图注而生成表格')
+  assert.equal(/caption/u.test(tex), false)
 })
 
-test('成对插图：没有图注时不生成 tabular', () => {
+test('成对插图：两张图并排，不加表格也不加题注行', () => {
   const tex = renderTex({
     ...doc,
     blocks: [{ type: 'imagePair', srcs: ['assets/a.png', 'assets/b.png'] }],
   })
   assert.equal(/\\begin\{tabular\}/u.test(tex), false)
   assert.match(tex, /\\includegraphics.*\\hspace\{0\.4cm\}\\includegraphics/u)
+  // 两张图在同一行：只允许一个 center 环境
+  assert.equal((tex.match(/\\begin\{center\}/gu) || []).length, 1)
+})
+
+test('单图环绕：指定 wrap=square + side 时走 wrapfig（对应 Word 的 wrapSquare）', () => {
+  const tex = renderTex({
+    ...doc,
+    blocks: [{ type: 'image', src: 'assets/a.png', wrap: 'square', side: 'r' }],
+  })
+  assert.match(tex, /\\begin\{wrapfigure\}\{r\}/u)
+  assert.equal(/\\begin\{center\}/u.test(tex), false)
 })
 
 test('每页行数：版心高 ÷ 28.8bp = 22 行', () => {

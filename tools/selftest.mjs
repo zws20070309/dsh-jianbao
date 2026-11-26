@@ -99,8 +99,17 @@ await writeFile(probe, [
   '        for ln in b["lines"]:',
   '            t = "".join(c["c"] for sp in ln["spans"] for c in sp["chars"]).strip()',
   '            if not t: continue',
+  '            # ink 边界：只算真正有墨迹的字符，不含首尾空白。',
+  '            # 参考 PDF 的页脚行末尾带一个 Word 遗留空格（503.76→506.01），',
+  '            # 那个空格没有墨迹；用整行 bbox 比会把「谁多打了一个空格」当成版式差异。',
+  '            chars = [c for sp in ln["spans"] for c in sp["chars"]]',
+  '            ink = [c for c in chars if c["c"].strip() != ""]',
+  '            if not ink: continue',
+  '            ink_x0 = round(min(c["bbox"][0] for c in ink), 2)',
+  '            ink_x1 = round(max(c["bbox"][2] for c in ink), 2)',
   '            rows.append({"page": pno + 1, "y": round(ln["spans"][0]["origin"][1], 3),',
-  '                         "x0": round(ln["bbox"][0], 2), "x1": round(ln["bbox"][2], 2),',
+  '                         "x0": ink_x0, "x1": ink_x1,',
+  '                         "line_x0": round(ln["bbox"][0], 2), "line_x1": round(ln["bbox"][2], 2),',
   '                         "size": round(ln["spans"][0]["size"], 2), "text": t})',
   'pages = d.page_count',
   'w, h = d[0].rect.width, d[0].rect.height',
@@ -144,7 +153,21 @@ const title = find('西藏大学理学院召开')
 if (title === undefined) fail('首页找不到大标题')
 else {
   check('大标题首行基线', title.y, METRICS.title1)
-  check('大标题左边距', title.x0, METRICS.marginLeft, 0.5)
+  // 大标题是**逐行居中**（57/63 篇 docx 的 w:jc="center"）。
+  // 参考 PDF 首行看起来贴着左边距，是因为那一行**恰好填满版心**
+  // （79.46→522.13，宽 442.66 ≈ 版心 442.22），居中与左对齐在这里同形。
+  // 所以不能硬性要求 x0 == marginLeft：标题能单行放下时，居中会让
+  // 起点内移（实测参考的第二行就起于 235.13）。
+  // 正确的判据是「行宽 ≈ 版心 → 贴边；否则 → 左右留白相等」。
+  const textW = METRICS.pageW - METRICS.marginLeft - METRICS.marginRight
+  const lineW = title.x1 - title.x0
+  const leftGap = title.x0 - METRICS.marginLeft
+  const rightGap = (METRICS.pageW - METRICS.marginRight) - title.x1
+  if (Math.abs(lineW - textW) <= 1.5) {
+    check('大标题左边距（满行贴边）', title.x0, METRICS.marginLeft, 0.5)
+  } else {
+    check('大标题居中（左右留白相等）', Math.abs(leftGap - rightGap), 0, 1.5)
+  }
 }
 
 const body1 = find('为给师生')
@@ -162,7 +185,10 @@ const footer = geo.rows.find((row) => /^—\s*\d+\s*—$/u.test(row.text))
 if (footer === undefined) fail('找不到页脚页码')
 else {
   check('页脚基线', footer.y, METRICS.footerBaseline)
-  check('页脚右端', footer.x1, 506.01, 0.5)
+  // 比的是**有墨迹**的右端（503.86）。参考 PDF 的行 bbox 是 506.01，
+  // 但那 2.15bp 是 Word 原文末尾一个没有墨迹的空格 —— 排版上不需要它，
+  // 任何阅读器看到的最后一道墨都在 503.86。
+  check('页脚右端（墨迹）', footer.x1, METRICS.footerInkRight, 0.5)
   check('页脚字号', footer.size, METRICS.pagePt, 0.05)
 }
 

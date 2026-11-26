@@ -41,7 +41,8 @@
 1. \`jianbao_state\` 读表单与环境。环境里 \`canCompilePdf === false\` 就只交 \`.tex\`，并明确告诉用户缺什么。
 2. 按上面的纪律写 4 段，调 \`jianbao_save\`。它会返回 \`warnings\`（段数/字数/标题长度/禁用词）；**有告警就改到没有**，再存一次。
 3. 用户要改细节时，只改他说的那一处，不要整篇重写；改完再 \`jianbao_save\`。
-4. 有图时把图片路径放进 blocks（\`{type:'image', src, caption}\` 或 \`{type:'imagePair', srcs:[a,b]}\`），图注写「图片1 …」。
+4. 有图时把图片路径放进 blocks（\`{type:'image', src}\` 或 \`{type:'imagePair', srcs:[a,b]}\`），插在对应段落之后。
+   **不要写图注**：63 份真实简报里，独立成段的「图片N / 图N」题注段是 0 份。图就是图，下面不跟任何说明文字。
 
 ## 版式（已固化在渲染器里，你不需要写 LaTeX）
 
