@@ -199,3 +199,17 @@ test('几何常量与参考 PDF 一致（防止有人改坏 METRICS）', () => {
   assert.equal(METRICS.ccBaseline2, 733.82)
   assert.equal(METRICS.footerBaseline, 752.856)
 })
+
+test('抄送必须落偶数页：交给 TeX 判断，而不是在 JS 里估页号', () => {
+  // 语料实测：63 篇里 4 页占 51 篇（81%）；4 页文档的空段落占 60–82%，
+  // 2 页文档只有 9–52% —— 说明正文写完并没填满四页，是**刻意用空行把正文
+  // 顶到第 4 页**，让抄送压偶数页。参考 PDF 也一样：第 3 页只有 3 行正文
+  // 加一张大图，第 4 页只有抄送。
+  //
+  // 实现上不能按基线推页号：正文换页后 prev 会小于首页基线（第 2 页从
+  // topSkip 重新起算），任何这种公式都会算错页号（实测把抄送推到了奇数页）。
+  // 交给 TeX 自己看 \value{page} 才对。
+  const tex = renderTex(doc)
+  assert.match(tex, /\\ifodd\\value\{page\}\\newpage\\fi/u)
+  assert.equal(METRICS.ccOnEvenPage, true)
+})
