@@ -20,3 +20,6 @@ incoming/
 *.pyz
 *.pyc
 *.zip
+
+# 语料分析中间产物（含真实姓名/手机号），不入库
+tools/_*.txt
