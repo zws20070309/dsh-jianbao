@@ -31,6 +31,26 @@ test('scanFonts：返回结构可消费（roles/fangzheng/total）', () => {
   assert.equal(typeof report.found, 'object')
 })
 
+test('scanFonts：方正字体的中文文件名也要能探测到', () => {
+  // 用户双击安装的中文字名字体（方正小标宋简体.ttf）内部 name 表与文件名
+  // 未必一致，靠「按字体名查找」不可靠，所以探测表里必须同时列中文文件名。
+  // 之前只列了英文名（FZXiaoBiaoSong-B05.ttf），本机装了方正小标宋也用不上，
+  // 大标题回落到 SimSun（实测字体名从 FZXBSJW 变回 SimSun）。
+  const report = scanFonts()
+  const hasFz = report.fangzheng.length > 0
+  if (!hasFz) {
+    // 没装方正字库的机器跳过（不能因为本机没装就让测试失败）
+    return
+  }
+  // 装了就应该被某个角色命中，而不是只出现在 fangzheng 列表里
+  const hit = Object.values(report.found).some((v) => /方正|FZ/u.test(v.file))
+  assert.equal(
+    hit,
+    true,
+    '探测到方正字库（' + report.fangzheng.join('、') + '）却没有分配到任何角色',
+  )
+})
+
 test('detectEnvironment：无论有没有 LaTeX，报告结构都必须完整', async () => {
   const report = await detectEnvironment()
   assert.equal(typeof report.detectedAt, 'string')
