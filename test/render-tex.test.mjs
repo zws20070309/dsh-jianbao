@@ -157,7 +157,13 @@ test('插图：大图独占 / 成对并排，受最大宽高约束', () => {
       { type: 'imagePair', srcs: ['assets/b.png', 'assets/c.png'] },
     ],
   })
-  assert.match(withImages, new RegExp('width=' + LAYOUT.largeImageWidthCm + 'cm,height=' + LAYOUT.largeImageMaxHeightCm + 'cm', 'u'))
+  // 单图只给 width，不给 height —— 加了 height 会让 keepaspectratio
+  // 反过来把宽度压小（height=10cm 时 15.6cm 宽的横图被缩成 9cm，
+  // 实测只有 255×143bp，用户明确说「一张图片的地方不用缩小」）。
+  assert.match(withImages, new RegExp('width=' + LAYOUT.largeImageWidthCm + 'cm\\]', 'u'))
+  assert.equal(/width=[\d.]+cm,height=[\d.]+cm,keepaspectratio/u.test(withImages), false)
+  // 单图铺满版心：15.6cm = 版心宽
+  assert.equal(LAYOUT.largeImageWidthCm, LAYOUT.textWidthCm)
   assert.match(withImages, new RegExp('width=' + LAYOUT.smallImageWidthCm + 'cm', 'u'))
   assert.match(withImages, /\\includegraphics.*\\hspace\{0\.4cm\}\\includegraphics/u)
 })
@@ -175,6 +181,22 @@ test('插图**不生成图注**：63 份真实简报里独立题注段为 0 份'
   assert.equal(/图片1|图片2|图片3/u.test(tex), false, '图注文字不得出现在 .tex 里')
   assert.equal(/\\begin\{tabular\}/u.test(tex), false, '不能为了放图注而生成表格')
   assert.equal(/caption/u.test(tex), false)
+})
+
+test('插图尺寸不受模型 widthCm 影响（模型会自己猜 9cm / 6.4cm）', () => {
+  const withWidth = renderTex({
+    ...doc,
+    blocks: [
+      { type: 'p', text: '正文。' },
+      // 模型实测写过这两个值，都偏离语料（单图中位 15.61cm / 并排 7.58cm）
+      { type: 'image', src: 'assets/a.png', widthCm: 9 },
+      { type: 'imagePair', srcs: ['assets/b.png', 'assets/c.png'], widthCm: 6.4 },
+    ],
+  })
+  assert.match(withWidth, new RegExp('width=' + LAYOUT.largeImageWidthCm + 'cm\\]', 'u'))
+  assert.match(withWidth, new RegExp('width=' + LAYOUT.smallImageWidthCm + 'cm\\]', 'u'))
+  assert.equal(withWidth.includes('width=9cm'), false)
+  assert.equal(withWidth.includes('width=6.4cm'), false)
 })
 
 test('成对插图：两张图并排，不加表格也不加题注行', () => {
