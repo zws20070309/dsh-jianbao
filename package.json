@@ -1,6 +1,6 @@
 {
   "name": "@zws/dsh-jianbao",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "简报工作台：DSH 里填基本信息 → 模型按版式规范写简报 → XeLaTeX 编译出 PDF。纸张 A4、页边距 3.7/3.5/2.8/2.6cm、行距固定 28.8 磅、正文 3 号方正仿宋、一/二/三级标题按规范，抄送区压末页底部、页脚「— N —」。没有 LaTeX 时降级为只出 .tex。",
   "type": "module",
   "main": "lib/index.js",

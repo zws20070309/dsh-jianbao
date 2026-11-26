@@ -159,6 +159,19 @@ test('成对插图：两张图并排，不加表格也不加题注行', () => {
   assert.equal((tex.match(/\\begin\{center\}/gu) || []).length, 1)
 })
 
+test('环绕图的负偏移不能是 undefined（wrapOverlapPt 必须在 METRICS 里有定义）', () => {
+  // render-tex.js 曾引用 LAYOUT.wrapOverlapPt，而 brief.js 里根本没定义这个常量 ——
+  // 一旦走 wrap=square 分支就会生成 '\vspace*{-undefined bp}'，编译直接失败。
+  const tex = renderTex({
+    ...doc,
+    blocks: [{ type: 'image', src: 'assets/a.png', wrap: 'square', side: 'r' }],
+  })
+  assert.equal(/undefined/u.test(tex), false, '.tex 里出现了 undefined')
+  assert.equal(typeof LAYOUT.wrapOverlapPt, 'number')
+  assert.ok(LAYOUT.wrapOverlapPt > 0)
+  assert.match(tex, /\\vspace\*\{-[\d.]+bp\}/u)
+})
+
 test('单图环绕：指定 wrap=square + side 时走 wrapfig（对应 Word 的 wrapSquare）', () => {
   const tex = renderTex({
     ...doc,
