@@ -120,7 +120,7 @@ test('用户字体目录：@LOCAL/ 前缀解析到 localFontDir', () => {
     localFontDir: 'C:/Users/USER/AppData/Local/Microsoft/Windows/Fonts',
     fonts: { cc: { name: '仿宋_GB2312', file: '@LOCAL/仿宋_GB2312.ttf' } },
   })
-  assert.match(tex, /\\newCJKfontfamily\\FZCc\[Path=C:\/Users\/ZWS\/AppData\/Local\/Microsoft\/Windows\/Fonts\//u)
+  assert.match(tex, /\\newCJKfontfamily\\FZCc\[Path=C:\/Users\/USER\/AppData\/Local\/Microsoft\/Windows\/Fonts\//u)
 })
 
 test('伪粗体：二/三级标题在系统字体上也要真的变粗', () => {

@@ -13,6 +13,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 const path = 'D:/Desktop/插件/dsh-jianbao/cordis.patch.yml'
 const text = readFileSync(path, 'utf8')
@@ -80,7 +82,8 @@ test('预设里不出现任何 @zws 行（模块解析平面不可靠）', () =>
 })
 
 test('bundle 层与 profile 层不重复插入（bundle 已经 insert 过，profile 不能再 insert）', () => {
-  const profilePatch = 'C:/Users/USER/.dsh/profiles/desktop/cordis.patch.yml'
+  // 用户目录从运行环境解析，不写死开发机路径（那也是泄漏点）。
+  const profilePatch = join(homedir(), '.dsh', 'profiles', 'desktop', 'cordis.patch.yml')
   const text = readFileSync(profilePatch, 'utf8')
   const live = text
     .split('\n')

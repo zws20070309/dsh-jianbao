@@ -9,6 +9,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 
 import { syncBundledSkills } from '../lib/index.js'
 
@@ -22,7 +23,9 @@ function cordisEvaluate(ctx, expr) {
 
 /** 宿主给 !!js 的作用域。 */
 function loaderScope() {
-  return { process, dshHomePath: (p) => 'C:/Users/USER/.dsh/' + p }
+  // 宿主侧 dshHomePath 给的是 posix 风格（'<home>/.dsh/' + rel），
+  // 这里也要用同一种拼接，不能混用 path.join（Windows 下会给反斜杠）。
+  return { process, dshHomePath: (p) => homedir().replaceAll('\\', '/') + '/.dsh/' + p }
 }
 
 /** 从补丁里抠出所有 !!js 表达式（补丁是生成的，形状稳定）。 */
@@ -70,7 +73,7 @@ test('技能根指向 dshHomePath，不是包内相对路径', () => {
   assert.match(text, /dshHomePath\('jianbao\/skills'\)/u)
   const scope = loaderScope()
   const resolved = cordisEvaluate(scope, "dshHomePath('jianbao/skills')")
-  assert.equal(resolved, 'C:/Users/USER/.dsh/jianbao/skills')
+  assert.equal(resolved, homedir().replaceAll('\\', '/') + '/.dsh/jianbao/skills')
 })
 
 test('随包技能会被同步到 dshHomePath 指向的位置', () => {

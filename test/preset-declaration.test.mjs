@@ -12,10 +12,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 
 const PATCH = 'D:/Desktop/插件/dsh-jianbao/cordis.patch.yml'
-const YAML = 'C:/Users/USER/.dsh/profiles/node_modules/js-yaml/index.js'
+const YAML = join(homedir(), '.dsh', 'profiles', 'node_modules', 'js-yaml', 'index.js')
 
 function loadPatch() {
   const yaml = createRequire(YAML)(YAML)

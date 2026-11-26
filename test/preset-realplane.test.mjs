@@ -25,18 +25,20 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, writeFileSync, mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const ELECTRON = 'C:/Users/USER/AppData/Local/Programs/DeepSeek Harness/DeepSeek Harness.exe'
-const ASAR_NM = 'C:/Users/USER/AppData/Local/Programs/DeepSeek Harness/resources/app.asar/dsh/node_modules'
+const ELECTRON = join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness', 'DeepSeek Harness.exe')
+const ASAR_NM = join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness', 'resources', 'app.asar', 'dsh', 'node_modules')
 const hasElectron = existsSync(ELECTRON)
 
 const PROBE = [
-  "const nm = '" + ASAR_NM + "'",
+  // Windows 路径含反斜杠，直接拼进 JS 源码会被当成转义符（实测变成 'C:UsersZWS…'）。
+  // JSON.stringify 会正确转义，同时也支持任意引号。
+  "const nm = " + JSON.stringify(ASAR_NM),
   "const boot = require(nm + '/@deepseek-ai/dsh-app-boot/lib/index.js')",
   "const installAnchor = nm + '/@deepseek-ai/dsh/package.json'",
-  "const profile = boot.loadProfile('dsh', 'desktop', installAnchor, 'C:/Users/USER/.dsh')",
+  "const profile = boot.loadProfile('dsh', 'desktop', installAnchor, " + JSON.stringify(join(homedir(), '.dsh')) + ")",
   'const all = [...profile.layers.flatMap((l) => l.patches), ...(profile.patches ?? [])]',
   'const rows = boot.composeEntries(all)',
   'const out = { layers: profile.layers.length, entries: rows.length, rows: {}, preset: {} }',
@@ -127,7 +129,7 @@ test('真机 asar 平面：@deepseek-ai/dsh-agent-preset 可加载且契约正�
 })
 
 test('本包在 profile 平面可加载（预设子行靠它）', async () => {
-  const p = 'C:/Users/USER/.dsh/profiles/desktop/node_modules/@zws/dsh-jianbao/lib/index.js'
+  const p = join(homedir(), '.dsh', 'profiles', 'desktop', 'node_modules', '@zws', 'dsh-jianbao', 'lib', 'index.js')
   assert.ok(existsSync(p), 'profile 平面的 junction 应指向本包')
   const m = await import('file:///' + p)
   assert.equal(typeof m.apply, 'function')
