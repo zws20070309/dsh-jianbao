@@ -140,7 +140,9 @@ test('期号行里的 \\hspace 不会被转义成文字', () => {
   // 参考实测结构（逐字符宽度）：2026 [3.82] 年 [7.17] 第74 [3.76] 期 [7.17]
   // 注意 issueText 已含「第N期」，外层只补前后两个间隙。
   assert.match(tex, /2026\\hspace\*\{3\.82bp\}年\\hspace\*\{7\.17bp\}第12期/u)
-  assert.match(tex, /第12期\\hspace\*\{7\.17bp\}/u)
+  // 末尾不能补间隙：Word 居中忽略行尾空白，TeX 的 \makebox 会算进盒宽，
+  // 多补 7.17bp 整行就左移 3.5bp（实测 x0 239.56 vs 参考 243.29）。
+  assert.equal(/第12期\\hspace\*/u.test(tex), false)
   assert.equal(/textbackslash\{\}hspace/u.test(tex), false)
   // 不能出现重复的「期」（曾经渲染成「第18 期期」）
   assert.equal(/期期/u.test(tex), false)
