@@ -218,3 +218,24 @@ test('人称与标点：我们/我校/感叹号/问号都有实测依据', () =>
   assert.ok(PUNCT_RULES.exclamation.bodyCount <= 2, '正文感叹号极少')
   assert.ok(Array.isArray(PUNCT_RULES.exclamation.allowOnly))
 })
+
+test('领导名单：职务内的顿号不当成分隔符', () => {
+  // 样本里有「院党委副书记、纪委书记张某某」—— 这是一个人的完整职务，
+  // 按顿号盲切会拆出「院党委副书记」这个假人，正文就会出现「院党委副书记同志」。
+  assert.deepEqual(splitNames('院党委副书记、纪委书记张某某'), ['院党委副书记、纪委书记张某某'])
+  assert.deepEqual(
+    splitNames('院党委副书记、纪委书记张某某、副院长孙某某'),
+    ['院党委副书记、纪委书记张某某', '副院长孙某某'],
+  )
+  // 纯姓名用顿号：照常拆
+  assert.deepEqual(splitNames('周某某、张某某'), ['周某某', '张某某'])
+  // 换行 / 逗号 / 分号 / 空格都是分隔符
+  assert.deepEqual(splitNames('孙某某\n张某某'), ['孙某某', '张某某'])
+  assert.deepEqual(splitNames('孙某某,张某某;张三'), ['孙某某', '张某某', '张三'])
+  assert.deepEqual(splitNames('周某某 张某某'), ['周某某', '张某某'])
+  // 混合：职务串 + 用换行分隔的另一个领导
+  assert.deepEqual(
+    splitNames('院党委副书记、纪委书记张某某\n副院长孙某某'),
+    ['院党委副书记、纪委书记张某某', '副院长孙某某'],
+  )
+})
