@@ -255,6 +255,35 @@ test('迁移只做一次：第二个新会话必须从空开始（这正是用�
   await rm(dir, { recursive: true, force: true }).catch(() => {})
 })
 
+test('save(compile=false) 不能生成 brief.tex —— 否则进度条一开工就 75%', async () => {
+  // 工作台点「开始工作」时会先 save(skeleton, false) 落一份骨架。
+  // 如果这一步顺手写了 brief.tex，前端的进度判定（按产物 mtime 推断阶段）
+  // 会立刻认为「LaTeX 源文件已生成」，进度直接跳到 75%（3/4）。
+  // 用户实测反馈过这个 bug。
+  const dir = join(tmpdir(), 'dsh-jianbao-save-' + process.pid)
+  await mkdir(dir, { recursive: true })
+  const { ctx, state } = await makeCtx(dir)
+  mountAll(ctx)
+  const service = state.provided.get('jianbao')
+
+  const skeleton = {
+    title: '', issue: '第1期', author: '甲', auditor: '乙', phone: '13800000000',
+    org: '西藏大学理学院', briefType: 'activity', topic: '测试',
+    cc: ['校领导'], withPageNumber: true, blocks: [],
+  }
+  const r = await service.save('s1', skeleton, false)
+  assert.equal(r.tex, '', 'compile=false 时不该返回 tex 路径')
+
+  const outDirPath = join(dir, '.jianbao', 'sessions', 's1', 'out')
+  assert.equal(existsSync(join(outDirPath, 'brief.tex')), false, 'compile=false 不该生成 brief.tex')
+  assert.equal(existsSync(join(outDirPath, 'brief.pdf')), false, 'compile=false 不该生成 brief.pdf')
+
+  // 骨架本身要落盘（模型一上来 jianbao_state 要读得到）
+  assert.ok(existsSync(join(dir, '.jianbao', 'sessions', 's1', 'brief.json')), '骨架 brief.json 必须落盘')
+
+  await rm(dir, { recursive: true, force: true }).catch(() => {})
+})
+
 test('cleanup', async () => {
   await rm(workspace, { recursive: true, force: true })
 })

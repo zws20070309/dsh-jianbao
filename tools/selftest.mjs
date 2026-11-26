@@ -174,7 +174,10 @@ const body1 = find('为给师生')
 if (body1 === undefined) fail('首页找不到正文首行')
 else {
   check('正文首行基线', body1.y, METRICS.body1)
-  check('正文左边距（不缩进）', body1.x0, METRICS.marginLeft, 0.5)
+  // 正文首行缩进 2 字符：语料 63/63 篇、230 段全是 w:firstLineChars="200"。
+  // 之前这里断言「不缩进」是错的 —— 依据是 74 号 PDF 的渲染结果，
+  // 而那份 PDF 丢掉了 docx 里的缩进设置。
+  check('正文首行缩进 2 字符', body1.x0, METRICS.marginLeft + METRICS.bodyPt * 2, 1.0)
 }
 
 const page2 = geo.rows.filter((row) => row.page === 2)

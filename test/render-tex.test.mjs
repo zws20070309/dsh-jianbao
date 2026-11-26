@@ -34,7 +34,8 @@ test('页面几何：A4 595.32×841.92bp + 左79.4/右73.7/上104.9/下99.25bp',
   assert.match(tex, /paperwidth=595\.32bp,paperheight=841\.92bp/u)
   assert.match(tex, /left=79\.4bp,right=73\.7bp,top=104\.9bp,bottom=99\.25bp/u)
   assert.match(tex, /\\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont/u)
-  assert.match(tex, /\\setlength\{\\parindent\}\{0pt\}/u)
+  // 正文首行缩进 2 字符（语料 63/63 篇、230 段全是 firstLineChars=200）
+  assert.match(tex, /\\setlength\{\\parindent\}\{2em\}/u)
 })
 
 test('字号全部按实测 bp 写：正文 15.96 / 标题 21.96 / 一级 19.93 / 抄送 15', () => {
@@ -43,21 +44,39 @@ test('字号全部按实测 bp 写：正文 15.96 / 标题 21.96 / 一级 19.93 
   assert.match(tex, /\{\\FZHOneLatin\\FZHOne\\fontsize\{19\.93bp\}\{28\.8bp\}\\selectfont 一、赛前准备\}/u)
   assert.match(tex, /\{\\FZHTwoLatin\\FZHTwo\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont （一）赛制安排\}/u)
   assert.match(tex, /\{\\FZHThreeLatin\\FZHThree\\bfseries \\fontsize\{15\.96bp\}\{28\.8bp\}\\selectfont 1\. 报名情况\}/u)
-  assert.match(tex, /\{\\FZCcLatin\\FZCc\\fontsize\{15bp\}\{28\.8bp\}\\selectfont/u)
+  assert.match(tex, /\\FZCcLatin\\FZCc\\fontsize\{15bp\}\{15bp\}\\selectfont/u)
 })
 
-test('正文段不缩进（与参考 PDF 一致：正文左边界 = 报头左边界 = 79.4）', () => {
+test('正文段首行缩进 2 字符（语料 63/63 篇 · 230 段全是 firstLineChars=200）', () => {
   const tex = renderTex(doc)
-  assert.equal(/\\hspace\*\{2em\}/u.test(tex), false)
-  assert.match(tex, /\\noindent 为了深入贯彻落实/u)
+  // 以 docx 源为准：每一篇的正文段落都设了 w:firstLineChars="200"（2 字符）。
+  // 之前判成「不缩进」是错的 —— 那是照着 74 号 PDF 的渲染结果反推的，
+  // 而那份 PDF 恰恰丢掉了 docx 里的缩进设置。
+  assert.match(tex, /\\setlength\{\\parindent\}\{2em\}/u)
+  // 正文段落不能带 \noindent，否则缩进被吃掉
+  assert.equal(/\\noindent 为了深入贯彻落实/u.test(tex), false, '正文段落不该写 \noindent')
+  assert.match(tex, /\n为了深入贯彻落实/u, '正文段落应以裸文本开头（吃 parindent）')
 })
 
-test('抄送区：两条通栏线 + \\vfill 压末页底，缩进 14.8 / 59.2bp', () => {
+test('抄送区：两条通栏线 + 绝对定位压末页底，缩进 14.8 / 59.2bp', () => {
   const tex = renderTex(doc)
-  assert.match(tex, /\\par\\vfill\\nointerlineskip/u)
-  assert.equal((tex.match(/\\rule\{\\linewidth\}\{1bp\}/gu) || []).length, 2)
-  assert.match(tex, /\\noindent\\hspace\*\{14\.8bp\}抄送：校领导、院领导/u)
-  assert.match(tex, /\\noindent\\hspace\*\{59\.2bp\}党委（校长）办公室、党委宣传部/u)
+  // 抄送不再用 \vfill 压底（那样一遇到 \newpage 就堆到页顶，实测横线跑到 y=127），
+  // 改成 eso-pic 绝对定位，位置直接取参考实测值：
+  //   rule1 y=687.25 / rule2 y=740.55（页面顶部起算）
+  //   cc 首行基线 704.02 / 次行 732.82
+  // 带星号：覆盖式注册，只对下一次 shipout（末页）生效
+  assert.match(tex, /\\AddToShipoutPictureFG\*\{\\AtPageLowerLeft\{%/u)
+  // 后面必须跟 \null 逼出一次 shipout，否则整段不会被画出来
+  assert.match(tex, /\}\}\n\\null/u)
+  assert.equal((tex.match(/\\rule\{442\.22bp\}/gu) || []).length, 2)
+  // 横线：toY(687.25)+nudge = 841.92-687.25-0.5 = 154.17
+  assert.match(tex, /\\put\(\\LenToUnit\{79\.4bp\},\\LenToUnit\{154\.17bp\}\)/u)
+  // 抄送首行：x = 79.4+14.8 = 94.2, y = 841.92-704.02 = 137.9
+  assert.match(tex, /\\put\(\\LenToUnit\{94\.2bp\},\\LenToUnit\{137\.9bp\}\)/u)
+  assert.match(tex, /抄送：校领导、院领导/u)
+  // 次行：x = 79.4+59.2 = 138.6, y = 841.92-732.82 = 109.1
+  assert.match(tex, /\\put\(\\LenToUnit\{138\.6bp\},\\LenToUnit\{109\.1bp\}\)/u)
+  assert.match(tex, /党委（校长）办公室、党委宣传部/u)
 })
 
 test('页脚：eso-pic 绝对定位到基线 752.856 / 右端 506.01', () => {
@@ -76,7 +95,10 @@ test('页脚：eso-pic 绝对定位到基线 752.856 / 右端 506.01', () => {
   assert.match(tex, /\\makebox\[21bp\]\[l\]\{\\fontspec\{Times New Roman\}/u)
   assert.equal(Math.round((METRICS.footerDashLeft + total) * 100) / 100, 506.01, '页脚右端必须落在 506.01')
   const noPage = renderTex({ ...doc, withPageNumber: false })
-  assert.equal(/AddToShipoutPictureFG/u.test(noPage), false)
+  // 注意不能简单断言「没有 AddToShipoutPictureFG」——
+  // 抄送区现在也用同一机制做绝对定位。要精确检查**页脚**那一段不在。
+  assert.equal(noPage.includes('\\FZPage\\fontsize{14.04bp}'), false, '关页码时不该画页脚')
+  assert.equal(noPage.includes('\\\\FZPageLatin'), false, '关页码时不该声明页脚字族')
 })
 
 test('字体回落：没给字体时走候选表最后一项（系统字体），不会留空宏', () => {
@@ -213,8 +235,9 @@ test('几何常量与参考 PDF 一致（防止有人改坏 METRICS）', () => {
   assert.equal(METRICS.page2Baseline, 127.94)
   assert.equal(METRICS.rule1Y, 687.25)
   assert.equal(METRICS.rule2Y, 740.55)
-  assert.equal(METRICS.ccBaseline1, 705.02)
-  assert.equal(METRICS.ccBaseline2, 733.82)
+  // 参考 PDF 第 4 页 span 级实测：抄送两行 origin_y = 704.02 / 732.82
+  assert.equal(METRICS.ccBaseline1, 704.02)
+  assert.equal(METRICS.ccBaseline2, 732.82)
   assert.equal(METRICS.footerBaseline, 752.856)
 })
 
