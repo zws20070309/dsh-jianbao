@@ -284,6 +284,35 @@ test('save(compile=false) 不能生成 brief.tex —— 否则进度条一开工
   await rm(dir, { recursive: true, force: true }).catch(() => {})
 })
 
+test('reviewBrief 抓出日期冲突与自签（用户实测的两个真问题）', async () => {
+  const dir = join(tmpdir(), 'dsh-jianbao-review-' + process.pid)
+  await mkdir(dir, { recursive: true })
+  const { ctx, state } = await makeCtx(dir)
+  mountAll(ctx)
+  const saveTool = state.tools.get('jianbao_save')
+  const exec = { agent: { session: { header: { cwd: dir, id: 'rev1' } } } }
+
+  // 造一份"日期自相矛盾 + 自签"的简报
+  const brief = {
+    title: '测试标题', issue: '第1期', year: '2026',
+    author: '孙某某', auditor: '孙某某',   // 自签
+    phone: '13800000001', org: '西藏大学理学院',
+    cc: ['校领导'], withPageNumber: true, briefType: 'contest', topic: '测试',
+    blocks: [
+      { type: 'p', text: '为进一步加强学生心理健康教育，2026年5月12日至5月13日，西藏大学理学院举办第五届心理健康知识竞赛。' },
+      { type: 'p', text: '4月20日，初赛笔试举行，全院326名学生参加，选手们认真作答，展现出扎实的知识储备。' },
+      { type: 'p', text: '4月24日，决赛在图书馆报告厅举行，各队伍同台竞技，现场气氛热烈，评选出一等奖1个。' },
+      { type: 'p', text: '此次竞赛以赛促学，为学生搭建了学习心理健康知识的平台，营造了积极健康的校园氛围。' },
+    ],
+  }
+  const res = await saveTool.execute({ brief, compile: false }, exec)
+  const all = res.warnings.join(' | ')
+  assert.match(all, /不同月份/u, '应当报出月份冲突')
+  assert.match(all, /审签人与撰稿人相同/u, '应当报出自签')
+
+  await rm(dir, { recursive: true, force: true }).catch(() => {})
+})
+
 test('cleanup', async () => {
   await rm(workspace, { recursive: true, force: true })
 })
